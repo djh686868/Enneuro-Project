@@ -1,5 +1,5 @@
-from core.tensor import tensor
-class parameter(tensor):
+from core.tensor import Tensor
+class Parameter(Tensor):
    pass
     
     

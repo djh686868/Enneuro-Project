@@ -1,5 +1,5 @@
 import weakref
-from .tensor import tensor 
+from .tensor import Tensor 
 import numpy as np
 
 
@@ -7,13 +7,13 @@ import numpy as np
 
 class Function:
     def __call__(self, *inputs):
-        inputs = [as_tensor(x) for x in inputs]#判断or转化类型
+        inputs = [as_Tensor(x) for x in inputs]#判断or转化类型
 
         xs = [x.data for x in inputs]()
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
             ys = (ys,)
-        outputs = [tensor(as_array(y)) for y in ys]
+        outputs = [Tensor(as_array(y)) for y in ys]
 
        
         self.generation = max([x.generation for x in inputs])
@@ -98,7 +98,8 @@ class Transpose(Function):
         #计算逆转置的轴
         inv_axes = tuple(np.argsort([ax % axes_len for ax in self.axes]))
         return transpose(gy, inv_axes)
-#转置操作的便捷函数,tensor的transpose方法会调用它    
+#转置操作的便捷函数,Tensor
+#的transpose方法会调用它    
 def transpose(x, axes = None):
     return Transpose(axes)(x)
 #切片操作
@@ -126,13 +127,14 @@ class GetItemGrad(Function):
         return GetItem(self.slices)(ggx)
     
 
-#切片操作的便捷函数,tensor的getitem方法会调用它
+#切片操作的便捷函数,Tensor
+#的getitem方法会调用它
 def get_item(x, slices):
     return GetItem(slices)(x)
 
 #增加维度
 def expand_dims(x, axis):
-    x = as_tensor(x)
+    x = as_Tensor(x)
     shape = list(x.shape)
     shape.insert(axis, 1)
     return reshape(x, tuple(shape))
@@ -193,7 +195,7 @@ class SumTo(Function):
  
 def sum_to(x, shape):
     if x.shape == shape:
-        return as_tensor(x)
+        return as_Tensor(x)
     return SumTo(shape)(x)
 
 class BroadcastTo(Function):
@@ -208,12 +210,12 @@ class BroadcastTo(Function):
 
 def broadcast_to(x, shape):
     if x.shape == shape:
-        return as_tensor(x)
+        return as_Tensor(x)
     return BroadcastTo(shape)(x)
 
 
 def average(x, axis=None, keepdims=False):
-    x = as_tensor(x)
+    x = as_Tensor(x)
     y = sum(x, axis, keepdims)
     return y * (y.data.size / x.data.size)
 

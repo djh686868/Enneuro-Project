@@ -1,6 +1,6 @@
-class tensor:
+class Tensor:
     ##... other methods ...
-    def as_tensor(x):
-        if isinstance(x, tensor):
+    def as_Tensor(x):
+        if isinstance(x, Tensor):
             return x
-        return tensor(x)
+        return Tensor(x)
