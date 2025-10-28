@@ -1,5 +1,5 @@
 import weakref
-from core.tensor import tensor
+from .tensor import tensor 
 import numpy as np
 
 
