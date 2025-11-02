@@ -152,7 +152,7 @@ class Sum(Function):
         self.keepdims = keepdims   
     def forward (self,x):
         self.x_shape = x.shape
-        return x.sum(x,self.axis,self.keepdims)
+        return x.sum(self.axis,self.keepdims)
     def backward (self,gy):
         ndim = len(self.x_shape)
         tupled_axis = self.axis
@@ -169,7 +169,8 @@ class Sum(Function):
         else:
             shape = gy.shape
         gy = gy.reshape(shape)  # reshape
-        return gy
+        gx = broadcast_to(gy, self.x_shape)
+        return gx
 
 def sum (x,axis = None,keepdims = False):
     return Sum(axis,keepdims)(x)
