@@ -1,5 +1,6 @@
 import weakref
 from .tensor import Tensor 
+from .tensor import as_Tensor, as_array
 import numpy as np
 
 
