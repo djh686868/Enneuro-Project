@@ -6,6 +6,7 @@ from core.parameter import Parameter
 from core.functions import pair
 
 
+
 #function为方法，通用工具舍弃保存参数功能，layer为层，保存参数功能，也具备层层嵌套功能
 class Layer:
     def __init__(self):
@@ -159,11 +160,83 @@ class Conv2d(Layer):
 
 #由于池化层，relu函数等不需要参数，这些可以直接用function中的函数即可
 
-#仅用于区分layer和model的类
-class Model(Layer):
-    pass
+#用于连接层和加载参数的类class Module(Layer):
+class Module(Layer):
+    def __init__(self):
+        super().__init__()
+        # 添加模型特有的属性
+        self.metadata = {
+            'model_class': self.__class__.__name__,
+            'version': '1.0'
+        }
+    
+    def to_dict(self):
+        """实现 Module 接口：完整序列化模型"""
+        # 使用 _flatten_params 获取所有参数
+        params_dict = {}
+        self._flatten_params(params_dict)
+        
+        # 转换为可序列化的格式
+        serializable_params = {}
+        for key, param in params_dict.items():
+            if hasattr(param, 'data'):
+                # 假设 Parameter 有 data 和 grad 属性
+                serializable_params[key] = {
+                    'data': param.data.tolist() if hasattr(param.data, 'tolist') else param.data,
+                    'grad': param.grad.tolist() if param.grad is not None and hasattr(param.grad, 'tolist') else param.grad,
+                    'requires_grad': getattr(param, 'requires_grad', True)
+                }
+        
+        return {
+            'metadata': self.metadata,
+            'params': serializable_params,
+            'training': getattr(self, 'training', True),
+            'model_class': self.__class__.__name__
+        }
+    
+    def from_dict(self, data):
+        """实现 Module 接口：从字典恢复模型"""
+        params_data = data.get('params', {})
+        
+        # 获取当前模型的扁平化参数
+        current_params = {}
+        self._flatten_params(current_params)
+        
+        # 恢复参数值
+        for key, param_data in params_data.items():
+            if key in current_params:
+                param = current_params[key]
+                if 'data' in param_data and hasattr(param, 'data'):
+                    # 恢复数据
+                    param.data = np.array(param_data['data']) if isinstance(param_data['data'], list) else param_data['data']
+                
+                if 'grad' in param_data and param_data['grad'] is not None:
+                    # 恢复梯度
+                    param.grad = np.array(param_data['grad']) if isinstance(param_data['grad'], list) else param_data['grad']
+                
+                if 'requires_grad' in param_data:
+                    setattr(param, 'requires_grad', param_data['requires_grad'])
+        
+        # 恢复训练状态
+        if 'training' in data:
+            self.training = data['training']
+    
+    #"""类似PyTorch的state_dict，只返回参数数据"""
+    # def state_dict(self):    
+    #     params_dict = {}
+    #     self._flatten_params(params_dict)
+        
+    #     state = {}
+    #     for key, param in params_dict.items():
+    #         if hasattr(param, 'data'):
+    #             state[key] = {
+    #                 'data': param.data,
+    #                 'requires_grad': getattr(param, 'requires_grad', True)
+    #             }
+    #     return state
 
-class Sequential(Model):
+
+class Sequential(Module):
     def __init__(self, *layers):
         super().__init__()
         self.layers = []
@@ -177,7 +250,7 @@ class Sequential(Model):
         return x
 
 #多层感知机
-class MLP(Model):
+class MLP(Module):
     def __init__(self, fc_output_sizes, activation=F.sigmoid):
         super().__init__()
         self.activation = activation
@@ -195,7 +268,7 @@ class MLP(Model):
 
 
 #简单的卷积模型
-class CNNWithPooling(Model):
+class CNNWithPooling(Module):
     def __init__(self, in_channels=3, num_classes=10):
       
         super().__init__()
