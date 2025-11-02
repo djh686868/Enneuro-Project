@@ -1,4 +1,3 @@
-
 __all__ = []
 
 from . import utils
@@ -10,4 +9,3 @@ __all__.append('nn')
 from . import data
 __all__.append('data')
 from . import train
-__all__.append('train')
