@@ -4,6 +4,7 @@ import numpy as np
 from core.functions import Function as F
 from core.parameter import Parameter
 from core.functions import pair
+from ..utils.statedict import StateDict
 
 
 
@@ -161,9 +162,9 @@ class Conv2d(Layer):
 #由于池化层，relu函数等不需要参数，这些可以直接用function中的函数即可
 
 #用于连接层和加载参数的类class Module(Layer):
-class Module(Layer):
+class Module(Layer,StateDict):
     def __init__(self):
-        super().__init__()
+        Layer.__init__(self)
         # 添加模型特有的属性
         self.metadata = {
             'model_class': self.__class__.__name__,
