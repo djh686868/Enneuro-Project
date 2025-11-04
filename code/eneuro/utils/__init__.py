@@ -10,3 +10,4 @@ save_checkpoint = Serializer.save_checkpoint
 __all__.append('save_checkpoint')
 load_checkpoint = Serializer.load_checkpoint
 __all__.append('load_checkpoint')
+
