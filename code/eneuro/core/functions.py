@@ -10,7 +10,7 @@ class Function:
     def __call__(self, *inputs):
         inputs = [as_Tensor(x) for x in inputs]#判断or转化类型
 
-        xs = [x.data for x in inputs]()
+        xs = [x.data for x in inputs]
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
             ys = (ys,)
@@ -25,62 +25,68 @@ class Function:
 
         return outputs if len(outputs) > 1 else outputs[0]
 
-    def forward(self, xs):
+    def forward(self, *xs):
         raise NotImplementedError()
 
     def backward(self, gys):
         raise NotImplementedError()
 
 class Sin(Function):
-    def forward(self, x):
-        return np.sin(x)
+    def forward(self, *xs):
+        xs = xs[0]
+        return np.sin(xs)
 
-    def backward(self, gy):
+    def backward(self, gys):
         x = self.inputs[0].data
-        gx = gy * np.cos(x)
+        gx = gys * np.cos(x)
         return gx
     
 class Cos(Function):
-    def forward(self,x):
-         return np.cos(x)
-    def backward(self, gy):
+    def forward(self,*xs):
+        xs = xs[0]
+        return np.cos(xs)
+    def backward(self, gys):
         x = self.inputs[0].data
-        gx = gy * -np.sin(x)
+        gx = gys * -np.sin(x)
         return gx
 
 class Exp(Function):
-    def forward(self,x):
-        return np.exp(x)
-    def backward(self, gy):
+    def forward(self,*xs):
+        xs = xs[0]
+        return np.exp(xs)
+    def backward(self, gys):
         x = self.inputs[0].data
-        gx = gy * np.exp(x)
+        gx = gys * np.exp(x)
         return gx
 
 class Tanh(Function):
-    def forward(self,x):
-        return np.tanh(x)
-    def backward(self, gy):
+    def forward(self,*xs):
+        xs=xs[0]
+        return np.tanh(xs)
+    def backward(self, gys):
         y = self.outputs[0].data
-        gx = gy * (1 - y**2)
+        gx = gys * (1 - y**2)
         return gx
     
 class Log(Function):
-    def forward(self,x):
-        return np.log(x)
-    def backward(self, gy):
+    def forward(self,*xs):
+        xs=xs[0]
+        return np.log(xs)
+    def backward(self, gys):
         x = self.inputs[0].data
-        gx = gy / x
+        gx = gys / x
         return gx
 
 
 class Reshape(Function):
     def __init__(self,shape):
         self.shape = shape
-    def forward(self,x):
-        self.x_shape = x.shape
-        return x.reshape(self.shape)
-    def backward(self,gy):
-        return  reshape(gy, self.x_shape)
+    def forward(self,*xs):
+        xs=xs[0]
+        self.x_shape = xs.shape
+        return xs.reshape(self.shape)
+    def backward(self,gys):
+        return  reshape(gys, self.x_shape)
     
 def reshape(x, shape):
     if x.shape == shape:
@@ -90,15 +96,16 @@ def reshape(x, shape):
 class Transpose(Function):
     def __init__(self,axes = None):
         self.axes = axes
-    def forward(self,x):
-        return x.transpose(self.axes)
-    def backward(self,gy):
+    def forward(self,*xs):
+        xs=xs[0]
+        return xs.transpose(self.axes)
+    def backward(self,gys):
         if self.axes is None:
-            return gy.transpose()
+            return gys.transpose()
         axes_len = len(self.axes)
         #计算逆转置的轴
         inv_axes = tuple(np.argsort([ax % axes_len for ax in self.axes]))
-        return transpose(gy, inv_axes)
+        return transpose(gys, inv_axes)
 #转置操作的便捷函数,Tensor
 #的transpose方法会调用它    
 def transpose(x, axes = None):
@@ -107,11 +114,12 @@ def transpose(x, axes = None):
 class GetItem(Function):
     def __init__ (self,slices):
         self.slices = slices
-    def forward (self,x):
-        return x[self.slices]
-    def backward (self,gy):
+    def forward (self,*xs):
+        xs=xs[0]
+        return xs[self.slices]
+    def backward (self,gys):
         x=self.inputs[0]
-        gx=GetItemGrad(self.slices,x.shape)(gy)
+        gx=GetItemGrad(self.slices,x.shape)(gys)
         return gx   
     
 #切片操作的反向传播
@@ -119,13 +127,14 @@ class GetItemGrad(Function):
     def __init__ (self,slices,x_shape):
         self.slices = slices
         self.x_shape = x_shape
-    def forward (self,gy):
+    def forward (self,*xs):
+        xs=xs[0]
         gx = np.zeros(self.x_shape)
-        gx[self.slices] = gy
+        gx[self.slices] = xs
         return gx
     #切片操作的反向传播
-    def backward (self,ggx):
-        return GetItem(self.slices)(ggx)
+    def backward (self,gys):
+        return GetItem(self.slices)(gys)
     
 
 #切片操作的便捷函数,Tensor
@@ -150,10 +159,11 @@ class Sum(Function):
     def __init__ (self,axis,keepdims):
         self.axis = axis
         self.keepdims = keepdims   
-    def forward (self,x):
-        self.x_shape = x.shape
-        return x.sum(self.axis,self.keepdims)
-    def backward (self,gy):
+    def forward (self,*xs):
+        xs=xs[0]
+        self.x_shape = xs.shape
+        return xs.sum(self.axis,self.keepdims)
+    def backward (self,gys):
         ndim = len(self.x_shape)
         tupled_axis = self.axis
         if self.axis is None:
@@ -163,13 +173,13 @@ class Sum(Function):
 
         if not (ndim == 0 or tupled_axis is None or self.keepdims):
             actual_axis = [a if a >= 0 else a + ndim for a in tupled_axis]
-            shape = list(gy.shape)
+            shape = list(gys.shape)
             for a in sorted(actual_axis):
                 shape.insert(a, 1)
         else:
-            shape = gy.shape
-        gy = gy.reshape(shape)  # reshape
-        gx = broadcast_to(gy, self.x_shape)
+            shape = gys.shape
+        gys = gys.reshape(shape)  # reshape
+        gx = broadcast_to(gys, self.x_shape)
         return gx
 
 def sum (x,axis = None,keepdims = False):
@@ -180,20 +190,21 @@ def sum (x,axis = None,keepdims = False):
 class SumTo(Function):
     def __init__ (self,shape):
         self.shape = shape
-    def forward (self,x):
-        self.x_shape = x.shape
+    def forward (self,*xs):
+        xs=xs[0]
+        self.x_shape = xs.shape
         ndim = len(self.shape)
-        lead = x.ndim - ndim
+        lead = xs.ndim - ndim
         lead_axis = tuple(range(lead))
 
         axis = tuple([i + lead for i, sx in enumerate(self.shape) if sx == 1])
-        y = x.sum(lead_axis + axis, keepdims=True)
+        y = xs.sum(lead_axis + axis, keepdims=True)
         if lead > 0:
              y = y.squeeze(lead_axis)
         return y
 
-    def backward (self,gy):
-        return reshape(gy,self.x_shape)
+    def backward (self,gys):
+        return reshape(gys,self.x_shape)
  
 def sum_to(x, shape):
     if x.shape == shape:
@@ -203,11 +214,12 @@ def sum_to(x, shape):
 class BroadcastTo(Function):
     def __init__ (self,shape):
         self.shape = shape
-    def forward (self,x):
-        self.x_shape = x.shape
-        return np.broadcast_to(x,self.shape)
-    def backward (self,gy):
-        return sum_to(gy,self.x_shape)
+    def forward (self,*xs):
+        xs=xs[0]
+        self.x_shape = xs.shape
+        return np.broadcast_to(xs,self.shape)
+    def backward (self,gys):
+        return sum_to(gys,self.x_shape)
   
 
 def broadcast_to(x, shape):
@@ -224,15 +236,17 @@ def average(x, axis=None, keepdims=False):
 
 
 class MatMul(Function):
-    def forward(self, x, W):
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
         y = x.dot(W)
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         x, W = self.inputs
         #调用的是自定义的matmul函数
-        gx = matmul(gy, W.T)
-        gW = matmul(x.T, gy)
+        gx = matmul(gys, W.T)
+        gW = matmul(x.T, gys)
         return gx, gW
     
 def matmul(x, W):
@@ -241,33 +255,37 @@ def matmul(x, W):
 ##线性变换函数###
 
 class Linear(Function):
-    def forward(self,x,w,b):
+    def forward(self,*xs):
+        x = xs[0]
+        w = xs[1]
+        b = xs[2]
         y = x.dot(w)
         if b is None:
             return y
         else:
             return y + b 
-    def backward (self,gy):
+    def backward (self,gys):
         x,w,b = self.inputs
-        gx = matmul(gy,w.T)
-        gw = matmul(x.T,gy)
+        gx = matmul(gys,w.T)
+        gw = matmul(x.T,gys)
         if b is None:
             gb = None
         else:
-            gb = gy.sum(axis=0)
+            gb = gys.sum(axis=0)
 
 #封装成线性变换的便捷函数
 def linear(x, W, b=None):
     return Linear()(x, W, b)
 
 class Sigmoid(Function):
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         y = np.tanh(x * 0.5) * 0.5 + 0.5  #使用numpy函数而非自定义函数
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         y = self.outputs[0]()
-        gx = gy * y * (1 - y)
+        gx = gys * y * (1 - y)
         return gx
 
 # Sigmoid函数的便捷函数
@@ -275,14 +293,15 @@ def sigmoid(x):
     return Sigmoid()(x)
 
 class ReLU(Function):
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         y = np.maximum(x, 0.0)
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         x, = self.inputs
         mask = x.data > 0
-        gx = gy * mask
+        gx = gys * mask
         return gx
 
 
@@ -293,15 +312,16 @@ class Softmax(Function):
     def __init__(self, axis=1):
         self.axis = axis
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         y = x - x.max(axis=self.axis, keepdims=True)
         y = np.exp(y)
         y /= y.sum(axis=self.axis, keepdims=True)
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         y = self.outputs[0]()
-        gx = y * gy
+        gx = y * gys
         sumdx = gx.sum(axis=self.axis, keepdims=True)
         gx -= y * sumdx
         return gx
@@ -350,14 +370,15 @@ class Im2col(Function):
         self.pad = pad
         self.to_matrix = to_matrix
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         self.input_shape = x.shape
         y = im2col_array(x, self.kernel_size, self.stride, self.pad,
                          self.to_matrix)
         return y
 
-    def backward(self, gy):
-        gx = col2im(gy, self.input_shape, self.kernel_size, self.stride,
+    def backward(self, gys):
+        gx = col2im(gys, self.input_shape, self.kernel_size, self.stride,
                     self.pad, self.to_matrix)
         return gx
 
@@ -392,13 +413,14 @@ class Col2im(Function):
         self.pad = pad
         self.to_matrix = to_matrix
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         y = col2im_array(x, self.input_shape, self.kernel_size, self.stride,
                          self.pad, self.to_matrix)
         return y
 
-    def backward(self, gy):
-        gx = im2col(gy, self.kernel_size, self.stride, self.pad,
+    def backward(self, gys):
+        gx = im2col(gys, self.kernel_size, self.stride, self.pad,
                     self.to_matrix)
         return gx
 
@@ -481,7 +503,10 @@ class Conv2d(Function):
         self.stride = pair(stride)
         self.pad = pair(pad)
 
-    def forward(self, x, W, b):
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
         KH, KW = W.shape[2:]
         col = im2col_array(x, (KH, KW), self.stride, self.pad, to_matrix=False)
 
@@ -492,17 +517,17 @@ class Conv2d(Function):
         # y = np.transpose(y, (0, 3, 1, 2))
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         x, W, b = self.inputs
         # ==== gx ====
-        gx = deconv2d(gy, W, b=None, stride=self.stride, pad=self.pad,
+        gx = deconv2d(gys, W, b=None, stride=self.stride, pad=self.pad,
                       outsize=(x.shape[2], x.shape[3]))
         # ==== gW ====
-        gW = Conv2DGradW(self)(x, gy)
+        gW = Conv2DGradW(self)(x, gys)
         # ==== gb ====
         gb = None
         if b.data is not None:
-            gb = gy.sum(axis=(0, 2, 3))
+            gb = gys.sum(axis=(0, 2, 3))
         return gx, gW, gb
 
 
@@ -517,7 +542,10 @@ class Deconv2d(Function):
         self.pad = pair(pad)
         self.outsize = outsize
 
-    def forward(self, x, W, b):
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
         Weight = W
         SH, SW = self.stride
         PH, PW = self.pad
@@ -540,17 +568,17 @@ class Deconv2d(Function):
             y += b.reshape((1, b.size, 1, 1))
         return y
 
-    def backward(self, gy):
+    def backward(self, gys):
         x, W, b = self.inputs
 
         # ==== gx ====
-        gx = conv2d(gy, W, b=None, stride=self.stride, pad=self.pad)
+        gx = conv2d(gys, W, b=None, stride=self.stride, pad=self.pad)
         # ==== gW ====
-        gW = Conv2DGradW(self)(gy, x)
+        gW = Conv2DGradW(self)(gys, x)
         # ==== gb ====
         gb = None
         if b.data is not None:
-            gb = gy.sum(axis=(0, 2, 3))
+            gb = gys.sum(axis=(0, 2, 3))
         return gx, gW, gb
 
 
@@ -566,8 +594,9 @@ class Conv2DGradW(Function):
         self.stride = conv2d.stride
         self.pad = conv2d.pad
 
-    def forward(self, x, gy):
-       
+    def forward(self, *xs):
+        x = xs[0]
+        gy = xs[1]
 
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
@@ -593,7 +622,8 @@ class Pooling(Function):
         self.stride = stride
         self.pad = pad
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
 
@@ -603,8 +633,8 @@ class Pooling(Function):
         y = col.max(axis=2)
         return y
 
-    def backward(self, gy):
-        return Pooling2DGrad(self)(gy)
+    def backward(self, gys):
+        return Pooling2DGrad(self)(gys)
 
 
 class Pooling2DGrad(Function):
@@ -617,7 +647,8 @@ class Pooling2DGrad(Function):
         self.dtype = mpool2d.inputs[0].dtype
         self.indexes = mpool2d.indexes
 
-    def forward(self, gy):
+    def forward(self, *xs):
+        gy = xs[0]
         
 
         N, C, OH, OW = gy.shape
@@ -639,9 +670,9 @@ class Pooling2DGrad(Function):
                           self.pad, to_matrix=False)
         return gx
 
-    def backward(self, ggx):
+    def backward(self, gys):
         f = Pooling2DWithIndexes(self.mpool2d)
-        return f(ggx)
+        return f(gys)
 
 
 class Pooling2DWithIndexes(Function):
@@ -653,7 +684,8 @@ class Pooling2DWithIndexes(Function):
         self.dtype = mpool2d.inputs[0].dtype
         self.indexes = mpool2d.indexes
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
         N, C, KH, KW, OH, OW = col.shape
@@ -676,18 +708,19 @@ class AveragePooling(Function):
         self.pad = pad
         self.input_shape = None
 
-    def forward(self, x):
+    def forward(self, *xs):
+        x = xs[0]
         self.input_shape = x.shape
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
         y = col.mean(axis=(2, 3))
         return y
 
-    def backward(self, gy):
-        N, C, OH, OW = gy.shape
+    def backward(self, gys):
+        N, C, OH, OW = gys.shape
         KW, KH = pair(self.kernel_size)
-        gy /= (KW*KH)
-        gcol = broadcast_to(gy.reshape(-1), (KH, KW, N*C*OH*OW))
+        gys /= (KW*KH)
+        gcol = broadcast_to(gys.reshape(-1), (KH, KW, N*C*OH*OW))
         gcol = gcol.reshape(KH, KW, N, C, OH, OW).transpose(2, 3, 0, 1, 4, 5)
         gx = col2im(gcol, self.input_shape, self.kernel_size, self.stride,
                     self.pad, to_matrix=False)
