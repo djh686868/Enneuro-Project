@@ -17,17 +17,17 @@ class Tensor(StateDict):
         return super().to_dict()
     
     def from_dict(self, d: dict) -> None: #序列化读取数据
-
-    def as_array(x):
+        return super().from_dict(d)
+def as_array(x):
     """将输入转换为numpy数组"""
     if np.isscalar(x):
         return np.array(x)
     return x
 
-    def as_Tensor(x):
+def as_Tensor(x):
     """将输入转换为Tensor对象"""
     if isinstance(x, Tensor):
         return x
     return Tensor(x)
-        return super().from_dict(d)
+        
 
