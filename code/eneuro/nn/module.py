@@ -2,6 +2,7 @@ import os
 import weakref
 import numpy as np
 from core.functions import Function as F
+from core import *
 from core.parameter import Parameter
 from core.functions import pair
 from ..utils.statedict import StateDict
@@ -24,6 +25,9 @@ class Layer:
             outputs = (outputs,)
         self.inputs = [weakref.ref(x) for x in inputs]
         self.outputs = [weakref.ref(y) for y in outputs]
+        #if len(outputs) == 0:
+            #raise
+
         return outputs if len(outputs) > 1 else outputs[0]
 
     def forward(self, inputs):
@@ -78,12 +82,12 @@ class Linear(Layer):
         W_data = np.random.randn(I, O).astype(self.dtype) * np.sqrt(1 / I)
         self.W.data = W_data
 
-    def forward(self, x):
+    def forward(self, inputs):
         if self.W.data is None:
-            self.in_size = x.shape[1]
+            self.in_size = inputs.shape[1]
             self._init_W()
 
-        y = F.linear(x, self.W, self.b)
+        y = linear(inputs, self.W, self.b)
         return y
     
 class Conv2d(Layer):
@@ -113,12 +117,12 @@ class Conv2d(Layer):
         W_data = xp.random.randn(OC, C, KH, KW).astype(self.dtype) * scale
         self.W.data = W_data
 
-    def forward(self, x):
+    def forward(self, inputs):
         if self.W.data is None:
-            self.in_channels = x.shape[1]          
+            self.in_channels = inputs.shape[1]          
             self._init_W()
 
-        y = F.conv2d(x, self.W, self.b, self.stride, self.pad)
+        y = conv2d(inputs, self.W, self.b, self.stride, self.pad)
         return y
 #反卷积层    一般用不到
 # class Deconv2d(Layer):
@@ -195,9 +199,9 @@ class Module(Layer,StateDict):
             'model_class': self.__class__.__name__
         }
     
-    def from_dict(self, data):
+    def from_dict(self, d):
         """实现 Module 接口：从字典恢复模型"""
-        params_data = data.get('params', {})
+        params_data = d.get('params', {})
         
         # 获取当前模型的扁平化参数
         current_params = {}
@@ -219,8 +223,8 @@ class Module(Layer,StateDict):
                     setattr(param, 'requires_grad', param_data['requires_grad'])
         
         # 恢复训练状态
-        if 'training' in data:
-            self.training = data['training']
+        if 'training' in d:
+            self.training = d['training']
     
     #"""类似PyTorch的state_dict，只返回参数数据"""
     # def state_dict(self):    
@@ -245,10 +249,10 @@ class Sequential(Module):
             setattr(self, 'l' + str(i), layer)
             self.layers.append(layer)
 
-    def forward(self, x):
+    def forward(self, inputs):
         for layer in self.layers:
-            x = layer(x)
-        return x
+            inputs = layer(inputs)
+        return inputs
 
 #多层感知机
 class MLP(Module):
@@ -262,10 +266,10 @@ class MLP(Module):
             setattr(self, 'l' + str(i), layer)
             self.layers.append(layer)
 
-    def forward(self, x):
+    def forward(self, inputs):
         for l in self.layers[:-1]:
-            x = self.activation(l(x))
-        return self.layers[-1](x)
+            inputs = self.activation(l(inputs))
+        return self.layers[-1](inputs)
 
 
 #简单的卷积模型
@@ -278,23 +282,23 @@ class CNNWithPooling(Module):
         # 卷积层部分
         layers = [
             Conv2d(32, 3, pad=1),  # 卷积层
-            F.relu,                   # 激活函数
-            F.Pooling(2, 2),        # 池化层
+            relu,                   # 激活函数
+            pooling(2, 2),        # 池化层
             
             Conv2d(64, 3, pad=1),
-            F.relu,
-            F.Pooling(2, 2),
+            relu,
+            pooling(2, 2),
        
         ]
         
         # 全连接层部分
         fc_layers = [
             Linear(128),
-            F.relu,
+            relu,
             Linear(64),
-            F.sigmoid,                # Sigmoid激活
+            sigmoid,                # Sigmoid激活
             Linear(num_classes),
-            F.softmax              # Softmax输出
+            softmax              # Softmax输出
         ]
         
         # 合并所有层
@@ -305,7 +309,7 @@ class CNNWithPooling(Module):
             setattr(self, 'l' + str(i), layer)
             self.layers.append(layer)
 
-    def forward(self, x):
+    def forward(self, inputs):
         for layer in self.layers:
-            x = layer(x)
-        return x
+            inputs = layer(inputs)
+        return inputs
