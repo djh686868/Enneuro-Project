@@ -25,9 +25,9 @@ class Layer:
             outputs = (outputs,)
         self.inputs = [weakref.ref(x) for x in inputs]
         self.outputs = [weakref.ref(y) for y in outputs]
-        #if len(outputs) == 0:
-            #raise
-
+        
+        if len(outputs) == 0:
+            raise
         return outputs if len(outputs) > 1 else outputs[0]
 
     def forward(self, inputs):
@@ -256,7 +256,7 @@ class Sequential(Module):
 
 #多层感知机
 class MLP(Module):
-    def __init__(self, fc_output_sizes, activation=F.sigmoid):
+    def __init__(self, fc_output_sizes, activation=sigmoid):
         super().__init__()
         self.activation = activation
         self.layers = []
