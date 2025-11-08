@@ -9,7 +9,8 @@ class Tensor(StateDict):
         self.shape : tuple
         self.grad : Tensor | None
         self.requires_grad : bool = False
-    
+
+
     def backward(self, gradient : Tensor | None = None) -> None:
         pass
 
@@ -18,6 +19,8 @@ class Tensor(StateDict):
     
     def from_dict(self, d: dict) -> None: #序列化读取数据
         return super().from_dict(d)
+
+
 def as_array(x):
     """将输入转换为numpy数组"""
     if np.isscalar(x):
@@ -29,5 +32,8 @@ def as_Tensor(x):
     if isinstance(x, Tensor):
         return x
     return Tensor(x)
+
+class Parameter(Tensor):
+    pass
         
 
