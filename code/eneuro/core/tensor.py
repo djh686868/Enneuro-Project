@@ -33,7 +33,6 @@ def as_Tensor(x):
         return x
     return Tensor(x)
 
-class Parameter(Tensor):
-    pass
+
         
 
