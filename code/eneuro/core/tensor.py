@@ -154,6 +154,12 @@ def as_Tensor(x):
     return Tensor(x)
 
 
-
+  #数据加载器需要用的方法
+    @staticmethod
+    def stack(tensors: List['Tensor']) -> 'Tensor':
+        """堆叠多个Tensor"""
+        if not tensors:
+            return Tensor(np.array([]))
+        return Tensor(np.stack([t.data for t in tensors]))
         
 
