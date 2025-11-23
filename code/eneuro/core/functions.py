@@ -383,7 +383,7 @@ class Im2col(Function):
         return gx
 
 #依旧是im2col的便捷函数
-def im2col(x, kernel_size, stride=1, pad=0, to_matrix=True):
+def im2col(x, kernel_size, stride=(1,1), pad=(0,0), to_matrix=True):
     #     参数说明
     # x (dezero.Variable 或 ndarray): 输入变量，形状为 (N, C, H, W)
     # kernel_size (int 或 (int, int)): 卷积核大小
@@ -425,7 +425,7 @@ class Col2im(Function):
         return gx
 
 
-def col2im(x, input_shape, kernel_size, stride=1, pad=0, to_matrix=True):
+def col2im(x, input_shape, kernel_size, stride=(1,1), pad=(0,0), to_matrix=True):
     return Col2im(input_shape, kernel_size, stride, pad, to_matrix)(x)
 
 def im2col_array(img, kernel_size, stride, pad, to_matrix=True):
