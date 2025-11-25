@@ -1,10 +1,10 @@
 import os
 import weakref
 import numpy as np
-from ..core.functions import Function as F
-from ..core import *
-from ..core.parameter import Parameter
-from ..core.functions import pair
+from core.functions import Function as F
+from core import *
+from core.parameter import Parameter
+from core.functions import pair
 from ..utils.statedict import StateDict
 
 
@@ -45,19 +45,7 @@ class Layer:
     def cleargrads(self):
         for param in self.params():
             param.cleargrad()
-
-    def get_params_list(self) -> list['Parameter']:
-        """
-        收集并返回当前层及其所有子层中的所有可训练参数。
-
-        Returns:
-            list[Parameter]: 一个包含所有 Parameter 对象的列表。
-        """
-        params_dict = {}
-        self._flatten_params(params_dict)
-        # 从字典的值中创建一个列表并返回
-        return list(params_dict.values())
-
+   
     #为保存参数来记录参数字典
     def _flatten_params(self, params_dict, parent_key=""):
         for name in self._params:

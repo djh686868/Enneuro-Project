@@ -498,7 +498,7 @@ def col2im_array(col, img_shape, kernel_size, stride, pad, to_matrix=True):
 #正式函数#
 #卷积函数和反卷积函数对称性强，大部分代码互为镜像
 class Conv2d(Function):
-    def __init__(self, stride=(1,1), pad=(0,0)):
+    def __init__(self, stride=1, pad=0):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
@@ -531,12 +531,12 @@ class Conv2d(Function):
         return gx, gW, gb
 
 
-def conv2d(x, W, b=None, stride=(1,1), pad=(0,0)):
+def conv2d(x, W, b=None, stride=1, pad=0):
     return Conv2d(stride, pad)(x, W, b)
 
 
 class Deconv2d(Function):
-    def __init__(self, stride=(1,1), pad=(0,0), outsize=None):
+    def __init__(self, stride=1, pad=0, outsize=None):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
@@ -582,7 +582,7 @@ class Deconv2d(Function):
         return gx, gW, gb
 
 
-def deconv2d(x, W, b=None, stride=(1,1), pad=(0,0), outsize=None):
+def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None):
     return Deconv2d(stride, pad, outsize)(x, W, b)
 
 
