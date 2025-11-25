@@ -1,14 +1,35 @@
 import weakref
-from .core import Tensor 
-from .core import as_Tensor, as_array
-from .core import Function
+from .tensor import Tensor 
+from .tensor import as_Tensor, as_array
 import numpy as np
 
 
 
-'''
-other functions
-'''
+
+class Function:
+    def __call__(self, *inputs):
+        inputs = [as_Tensor(x) for x in inputs]#判断or转化类型
+
+        xs = [x.data for x in inputs]
+        ys = self.forward(*xs)
+        if not isinstance(ys, tuple):
+            ys = (ys,)
+        outputs = [Tensor(as_array(y)) for y in ys]
+
+       
+        self.generation = max([x.generation for x in inputs])
+        for output in outputs:
+            output.set_creator(self)
+        self.inputs = inputs
+        self.outputs = [weakref.ref(output) for output in outputs]#弱引用，避免循环引用
+
+        return outputs if len(outputs) > 1 else outputs[0]
+
+    def forward(self, *xs):
+        raise NotImplementedError()
+
+    def backward(self, gys):
+        raise NotImplementedError()
 
 class Sin(Function):
     def forward(self, *xs):
@@ -58,11 +79,8 @@ class Log(Function):
 
 
 class Reshape(Function):
-    def __init__(self,shape,visualize=False):
-        super().__init__()
+    def __init__(self,shape):
         self.shape = shape
-        self.visualize = visualize
-
     def forward(self,*xs):
         xs=xs[0]
         self.x_shape = xs.shape
@@ -94,10 +112,8 @@ def transpose(x, axes = None):
     return Transpose(axes)(x)
 #切片操作
 class GetItem(Function):
-    def __init__ (self,slices,visualize=False):
+    def __init__ (self,slices):
         self.slices = slices
-        self.visualize = visualize
-
     def forward (self,*xs):
         xs=xs[0]
         return xs[self.slices]
@@ -108,10 +124,9 @@ class GetItem(Function):
     
 #切片操作的反向传播
 class GetItemGrad(Function):
-    def __init__ (self,slices,x_shape,visualize=False):
+    def __init__ (self,slices,x_shape):
         self.slices = slices
         self.x_shape = x_shape
-        self.visualize = visualize
     def forward (self,*xs):
         xs=xs[0]
         gx = np.zeros(self.x_shape)
@@ -141,10 +156,9 @@ def flatten(x):
 
 #沿指定轴求和操作
 class Sum(Function):
-    def __init__ (self,axis,keepdims,visualize=False):
+    def __init__ (self,axis,keepdims):
         self.axis = axis
-        self.keepdims = keepdims
-        self.visualize = visualize
+        self.keepdims = keepdims   
     def forward (self,*xs):
         xs=xs[0]
         self.x_shape = xs.shape
@@ -174,9 +188,8 @@ def sum (x,axis = None,keepdims = False):
 
 #求和到目标形状
 class SumTo(Function):
-    def __init__ (self,shape,visualize=False):
+    def __init__ (self,shape):
         self.shape = shape
-        self.visualize = visualize
     def forward (self,*xs):
         xs=xs[0]
         self.x_shape = xs.shape
@@ -199,8 +212,7 @@ def sum_to(x, shape):
     return SumTo(shape)(x)
 
 class BroadcastTo(Function):
-    def __init__ (self,shape,visualize=False):
-        self.visualize = visualize
+    def __init__ (self,shape):
         self.shape = shape
     def forward (self,*xs):
         xs=xs[0]
@@ -260,7 +272,6 @@ class Linear(Function):
             gb = None
         else:
             gb = gys.sum(axis=0)
-        return gx,gw,gb
 
 #封装成线性变换的便捷函数
 def linear(x, W, b=None):
@@ -298,9 +309,8 @@ def relu(x):
     return ReLU()(x)
 
 class Softmax(Function):
-    def __init__(self, axis=1,visualize=False):
+    def __init__(self, axis=1):
         self.axis = axis
-        self.visualize = visualize
 
     def forward(self, *xs):
         x = xs[0]
@@ -322,53 +332,6 @@ def softmax(x, axis=1):
 
 
 
-class Max(Function):
-    def __init__(self, axis=None, keepdims=False, visualize=False):
-        self.axis = axis
-        self.keepdims = keepdims
-        self.visualize = visualize
-
-    def forward(self, *xs):
-        x = xs[0]
-        y = x.max(axis=self.axis, keepdims=self.keepdims)
-        return y
-
-    def _get_backward_shape(self, x):
-        """获取反向传播所需的形状"""
-        if self.axis is None:
-            axis = range(x.ndim)
-        elif isinstance(self.axis, int):
-            axis = (self.axis,)
-        else:
-            axis = self.axis
-
-        shape = [s if ax not in axis else 1 for ax, s in enumerate(x.shape)]
-        return shape
-
-    def backward(self, gy):
-        x = self.inputs[0]
-        y = self.outputs[0]()  # weakref
-        shape = self._get_backward_shape(x)
-        gy = reshape(gy, shape)
-        y = reshape(y, shape)
-        cond = (x.data == y.data)
-        gy = broadcast_to(gy, cond.shape)
-        return gy * cond
-
-
-class Min(Max):
-    def forward(self, *xs):
-        x = xs[0]        
-        y = x.min(axis=self.axis, keepdims=self.keepdims)
-        return y
-
-
-def max(x, axis=None, keepdims=False):
-    return Max(axis, keepdims)(x)
-
-
-def min(x, axis=None, keepdims=False):
-    return Min(axis, keepdims)(x)
 
 
 
@@ -399,14 +362,13 @@ def pair(x):
 #col2im_array纯计算不微分，就单独成函数，不储存任何信息
 #col2im和im2col函数的Function类封装互为逆
 class Im2col(Function):
-    def __init__(self, kernel_size, stride, pad, to_matrix,visualize=False):
+    def __init__(self, kernel_size, stride, pad, to_matrix):
         super().__init__()
         self.input_shape = None
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
         self.to_matrix = to_matrix
-        self.visualize = visualize
 
     def forward(self, *xs):
         x = xs[0]
@@ -443,15 +405,13 @@ def im2col(x, kernel_size, stride=(1,1), pad=(0,0), to_matrix=True):
 
 
 class Col2im(Function):
-    def __init__(self, input_shape, kernel_size, stride, pad, to_matrix,visualize=False):
+    def __init__(self, input_shape, kernel_size, stride, pad, to_matrix):
         super().__init__()
         self.input_shape = input_shape
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
         self.to_matrix = to_matrix
-        self.visualize = visualize
-
 
     def forward(self, *xs):
         x = xs[0]
@@ -538,12 +498,10 @@ def col2im_array(col, img_shape, kernel_size, stride, pad, to_matrix=True):
 #正式函数#
 #卷积函数和反卷积函数对称性强，大部分代码互为镜像
 class Conv2d(Function):
-    def __init__(self, stride=(1,1), pad=(0,0),visualize=False):
+    def __init__(self, stride=1, pad=0):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
-        self.visualize = visualize
-
 
     def forward(self, *xs):
         x = xs[0]
@@ -573,18 +531,16 @@ class Conv2d(Function):
         return gx, gW, gb
 
 
-def conv2d(x, W, b=None, stride=(1,1), pad=(0,0),visualize=False):
-    return Conv2d(stride, pad,visualize)(x, W, b)
+def conv2d(x, W, b=None, stride=1, pad=0):
+    return Conv2d(stride, pad)(x, W, b)
 
 
 class Deconv2d(Function):
-    def __init__(self, stride=(1,1), pad=(0,0), outsize=None,visualize=False):
+    def __init__(self, stride=1, pad=0, outsize=None):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
         self.outsize = outsize
-        self.visualize = visualize
-
 
     def forward(self, *xs):
         x = xs[0]
@@ -626,14 +582,12 @@ class Deconv2d(Function):
         return gx, gW, gb
 
 
-def deconv2d(x, W, b=None, stride=(1,1), pad=(0,0), outsize=None,visualize=False):
-    return Deconv2d(stride, pad, outsize,visualize)(x, W, b)
+def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None):
+    return Deconv2d(stride, pad, outsize)(x, W, b)
 
 
 class Conv2DGradW(Function):
-    def __init__(self, conv2d,visualize=False):
-        super().__init__()
-        self.visualize = visualize
+    def __init__(self, conv2d):
         W = conv2d.inputs[1]
         kh, kw = W.shape[2:]
         self.kernel_size = (kh, kw)
@@ -662,12 +616,11 @@ class Conv2DGradW(Function):
     
 #改变维度，池化操作找到KH * KW最大值的位置
 class Pooling(Function):
-    def __init__(self, kernel_size, stride=1, pad=0, visualize=False):
+    def __init__(self, kernel_size, stride=1, pad=0):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
-        self.visualize = visualize
 
     def forward(self, *xs):
         x = xs[0]
@@ -685,9 +638,7 @@ class Pooling(Function):
 
 
 class Pooling2DGrad(Function):
-    def __init__(self, mpool2d,visualize=False):
-        super().__init__()
-        self.visualize = visualize
+    def __init__(self, mpool2d):
         self.mpool2d = mpool2d
         self.kernel_size = mpool2d.kernel_size
         self.stride = mpool2d.stride
@@ -725,9 +676,7 @@ class Pooling2DGrad(Function):
 
 
 class Pooling2DWithIndexes(Function):
-    def __init__(self, mpool2d,visualize=False):
-        super().__init__()
-        self.visualize = visualize
+    def __init__(self, mpool2d):
         self.kernel_size = mpool2d.kernel_size
         self.stride = mpool2d.stride
         self.pad = mpool2d.pad
@@ -747,12 +696,12 @@ class Pooling2DWithIndexes(Function):
         return col.reshape(N, C, OH, OW)
 
 
-def pooling(x, kernel_size, stride=1, pad=0, visualize=False):
-    return Pooling(kernel_size, stride, pad, visualize)(x)
+def pooling(x, kernel_size, stride=1, pad=0):
+    return Pooling(kernel_size, stride, pad)(x)
 
 
 class AveragePooling(Function):
-    def __init__(self, kernel_size, stride=1, pad=0, visualize=False):
+    def __init__(self, kernel_size, stride=1, pad=0):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
