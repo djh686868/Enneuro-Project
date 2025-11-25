@@ -582,7 +582,7 @@ class Deconv2d(Function):
         return gx, gW, gb
 
 
-def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None):
+def deconv2d(x, W, b=None, stride=(1,1), pad=(0,0), outsize=None):
     return Deconv2d(stride, pad, outsize)(x, W, b)
 
 
