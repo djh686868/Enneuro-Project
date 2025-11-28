@@ -1,6 +1,7 @@
 import numpy as np
 from ..core import Tensor
 from .meters import TimeMeter, AverageMeter
+from ..core.tensor import Config
 
 import sys
 import time
@@ -75,7 +76,10 @@ class Trainer:
             if training:
                 self.model.cleargrads()
                 loss.backward()
-                self.optimizer.update()
+                '''
+                    changed update to step
+                '''
+                self.optimizer.step()
             
             loss_sum += loss.data * len(Xb)
             acc_sum += (y_hat == y_true).sum()
@@ -85,7 +89,7 @@ class Trainer:
             # self.acc_meter.update(acc_sum / sample_num)
             
             if verbose:
-                progress_bar(start_idx + len(Xb), len(X), self._epoch, loss.data, acc_sum / sample_num)
+                progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, acc_sum / sample_num)
         if verbose:
             sys.stdout.write('\n')
 
@@ -111,7 +115,7 @@ class Evaluator:
             # Xb = Xb.to(device)
             # yb = yb.to(device)
 
-            with usingConfig('train', False):
+            with Config.using_config('train', False):
                 y_hat = self.model(Xb)
                 
                 if yb.ndim > 1:
