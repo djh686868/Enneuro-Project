@@ -76,7 +76,10 @@ class Trainer:
             if training:
                 self.model.cleargrads()
                 loss.backward()
-                self.optimizer.update()
+                '''
+                    changed update to step
+                '''
+                self.optimizer.step()
             
             loss_sum += loss.data * len(Xb)
             acc_sum += (y_hat == y_true).sum()
@@ -86,7 +89,7 @@ class Trainer:
             # self.acc_meter.update(acc_sum / sample_num)
             
             if verbose:
-                progress_bar(batch_idx + len(Xb), len(data_loader.dataset), self._epoch, loss.data, acc_sum / sample_num)
+                progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, acc_sum / sample_num)
         if verbose:
             sys.stdout.write('\n')
 
