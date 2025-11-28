@@ -1,7 +1,8 @@
 from ..core import Tensor
+import numpy as np
+from abc import ABC,abstractmethod
 
-class Loss():
-    """损失函数基类"""
+class Loss(ABC):
 
     @abstractmethod
     def __call__(self, pred, target):
@@ -26,7 +27,7 @@ class MSELoss(Loss):
 
         loss_tensor = Tensor(loss, requires_grad=pred.requires_grad)
         if pred.requires_grad:
-            loss_tensor._op = self
+            loss_tensor.set_creator = self  
 
         return loss_tensor
 
@@ -41,8 +42,15 @@ class MSELoss(Loss):
         else:
             grad_input = 2 * diff
 
+
+        grad_input = grad_input * grad
+        
         if self.pred.requires_grad:
-            self.pred.grad = grad_input
+            # 累加梯度
+            if self.pred.grad is None:
+                self.pred.grad = grad_input
+            else:
+                self.pred.grad += grad_input
 
 class CrossEntropyLoss(Loss):
     """交叉熵损失"""
@@ -61,7 +69,7 @@ class CrossEntropyLoss(Loss):
         if len(target.shape) == 1:
             # 类别索引
             batch_size = pred.shape[0]
-            loss = -np.log(self.softmax[np.arange(batch_size), target.data.astype(int)])
+            loss = -np.log(self.softmax[np.arange(batch_size), target.data.astype(int)] + 1e-8)
         else:
             # one-hot编码
             loss = -np.sum(target.data * np.log(self.softmax + 1e-8), axis=1)
@@ -73,8 +81,7 @@ class CrossEntropyLoss(Loss):
 
         loss_tensor = Tensor(loss, requires_grad=pred.requires_grad)
         if pred.requires_grad:
-            loss_tensor._op = self
-
+            loss_tensor.set_creator = self  
         return loss_tensor
 
     def backward(self, grad):
@@ -91,8 +98,14 @@ class CrossEntropyLoss(Loss):
         if self.reduction == 'mean':
             grad_input /= batch_size
 
+        grad_input = grad_input * grad
+        
         if self.pred.requires_grad:
-            self.pred.grad = grad_input
+            # 累加梯度
+            if self.pred.grad is None:
+                self.pred.grad = grad_input
+            else:
+                self.pred.grad += grad_input
 
 class BCELoss(Loss):
     """二元交叉熵损失"""
@@ -123,8 +136,7 @@ class BCELoss(Loss):
             
         loss_tensor = Tensor(loss, requires_grad=pred.requires_grad)
         if pred.requires_grad:
-            loss_tensor._op = self
-            
+            loss_tensor.set_creator = self 
         return loss_tensor
     
     def backward(self, grad):
@@ -135,6 +147,12 @@ class BCELoss(Loss):
         
         if self.reduction == 'mean':
             grad_input /= batch_size
+        
+
+        grad_input = grad_input * grad
             
         if self.pred.requires_grad:
-            self.pred.grad = grad_input
+         if self.pred.grad is None:
+                self.pred.grad = grad_input
+        else:
+                self.pred.grad += grad_input
