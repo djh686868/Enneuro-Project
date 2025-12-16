@@ -1,4 +1,4 @@
-from ..core import Tensor
+from ..base import Tensor
 import numpy as np
 import time
 

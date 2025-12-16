@@ -1,10 +1,10 @@
 import os
 import weakref
 import numpy as np
-from ..core.functions import Function as F
-from ..core import *
-from ..core.parameter import Parameter
-from ..core.functions import pair
+from ..base.functions import Function as F
+from ..base import *
+from ..base.parameter import Parameter
+from ..base.functions import pair
 from ..utils.statedict import StateDict
 
 

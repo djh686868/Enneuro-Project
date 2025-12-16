@@ -1,7 +1,8 @@
 import numpy as np
-from ..core import Tensor
+from ..base import Tensor
+from ..base import as_Tensor
 from .meters import TimeMeter, AverageMeter
-from ..core.tensor import Config
+from ..base import Config
 
 import sys
 import time
@@ -56,8 +57,8 @@ class Trainer:
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = Tensor(Xb)
-            yb = Tensor(yb)
+            Xb = as_Tensor(Xb)
+            yb = as_Tensor(yb)
             # Xb = Xb.to(device)
             # yb = yb.to(device)
             y_hat = self.model(Xb)
@@ -66,6 +67,11 @@ class Trainer:
             else:
                 y_true = yb
 
+            '''
+            print(type(y_hat),y_hat.shape)
+            print(y_hat)
+            print(type(y_true),y_true.shape)
+            print(y_true)'''
             loss = self.loss_fn(y_hat, y_true)
 
             if y_hat.ndim > 1:
@@ -110,8 +116,8 @@ class Evaluator:
 
         # self.model.to(device)
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = Tensor(Xb)
-            yb = Tensor(yb)
+            Xb = as_Tensor(Xb)
+            yb = as_Tensor(yb)
             # Xb = Xb.to(device)
             # yb = yb.to(device)
 
