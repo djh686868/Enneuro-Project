@@ -1,4 +1,4 @@
-from ..core import Tensor,Parameter
+from ..base import Tensor,Parameter
 from ..utils import StateDict
 import numpy as np
 from typing import Any
@@ -69,7 +69,12 @@ class SGD(Optimizer):
         for param in self.params:
             if param.grad is None:
                 continue
+            
             param.data -= self._state[LR_KEY] * param.grad.data
+            '''
+            t = self._state[LR_KEY] * param.grad.data
+            t = param.data - t
+            param.data = t'''
     
 class MomentumSGD(Optimizer):
     def __init__(self, params: list[Parameter], lr: float = 0.01, momentum: float = 0.9):

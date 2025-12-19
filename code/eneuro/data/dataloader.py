@@ -1,7 +1,7 @@
 from . import Dataset
 import random
 from typing import Tuple, List
-from ..core import Tensor
+from ..base import Tensor
 
 class DataLoader:
     def __init__(self, dataset: Dataset, batch_size: int = 1, shuffle: bool = False, drop_last: bool = False) -> None:

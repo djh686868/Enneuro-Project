@@ -1,6 +1,8 @@
 import numpy as np
-from ..core import Tensor
+from ..base import Tensor
+from ..base import as_Tensor
 from .meters import TimeMeter, AverageMeter
+from ..base import Config
 
 import sys
 import time
@@ -55,8 +57,8 @@ class Trainer:
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = Tensor(Xb)
-            yb = Tensor(yb)
+            Xb = as_Tensor(Xb)
+            yb = as_Tensor(yb)
             # Xb = Xb.to(device)
             # yb = yb.to(device)
             y_hat = self.model(Xb)
@@ -65,6 +67,11 @@ class Trainer:
             else:
                 y_true = yb
 
+            '''
+            print(type(y_hat),y_hat.shape)
+            print(y_hat)
+            print(type(y_true),y_true.shape)
+            print(y_true)'''
             loss = self.loss_fn(y_hat, y_true)
 
             if y_hat.ndim > 1:
@@ -75,7 +82,10 @@ class Trainer:
             if training:
                 self.model.cleargrads()
                 loss.backward()
-                self.optimizer.update()
+                '''
+                    changed update to step
+                '''
+                self.optimizer.step()
             
             loss_sum += loss.data * len(Xb)
             acc_sum += (y_hat == y_true).sum()
@@ -85,7 +95,7 @@ class Trainer:
             # self.acc_meter.update(acc_sum / sample_num)
             
             if verbose:
-                progress_bar(start_idx + len(Xb), len(X), self._epoch, loss.data, acc_sum / sample_num)
+                progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, acc_sum / sample_num)
         if verbose:
             sys.stdout.write('\n')
 
@@ -106,12 +116,12 @@ class Evaluator:
 
         # self.model.to(device)
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = Tensor(Xb)
-            yb = Tensor(yb)
+            Xb = as_Tensor(Xb)
+            yb = as_Tensor(yb)
             # Xb = Xb.to(device)
             # yb = yb.to(device)
 
-            with usingConfig('train', False):
+            with Config.using_config('train', False):
                 y_hat = self.model(Xb)
                 
                 if yb.ndim > 1:
