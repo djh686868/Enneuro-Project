@@ -71,10 +71,14 @@ class SGD(Optimizer):
                 continue
             
             param.data -= self._state[LR_KEY] * param.grad.data
+            
             '''
+            print(type(param.grad.data))
+            print(param.grad.data)
             t = self._state[LR_KEY] * param.grad.data
             t = param.data - t
-            param.data = t'''
+            param.data = t
+            '''
     
 class MomentumSGD(Optimizer):
     def __init__(self, params: list[Parameter], lr: float = 0.01, momentum: float = 0.9):

@@ -10,7 +10,7 @@ from eneuro.nn.module import MLP
 from eneuro.base import functions as F
 from eneuro.base import Tensor
 from eneuro.nn.optim import SGD
-from eneuro.nn.loss import crossEntropyError
+from eneuro.nn.loss import crossEntropyError,sigmoidCrossEntropy,softmaxCrossEntropy,meanSquaredError
 from eneuro.train import Trainer, Evaluator
 from eneuro.utils import Visualizer
 
@@ -104,7 +104,7 @@ def train_iris_classifier():
     
     # 1. 准备数据
     # 使用绝对路径确保文件能被正确找到
-    file_path = "code\\testdata\\Iris.csv"
+    file_path = "testdata\\Iris.csv"
     
     # 加载完整数据集
     full_dataset = IrisDataset(file_path)

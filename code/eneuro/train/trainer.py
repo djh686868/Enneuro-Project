@@ -111,11 +111,6 @@ class Trainer:
             else:
                 y_true = yb
 
-            '''
-            print(type(y_hat),y_hat.shape)
-            print(y_hat)
-            print(type(y_true),y_true.shape)
-            print(y_true)'''
             loss = self.loss_fn(y_hat, y_true)
 
             if y_hat.ndim > 1:
