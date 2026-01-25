@@ -7,7 +7,8 @@ from ..base.parameter import Parameter
 from ..base.functions import pair
 from ..utils.statedict import StateDict
 
-
+from eneuro.global_config import VISUAL_CONFIG
+import cv2
 
 #function为方法，通用工具舍弃保存参数功能，layer为层，保存参数功能，也具备层层嵌套功能
 class Layer:
@@ -25,7 +26,7 @@ class Layer:
             outputs = (outputs,)
         self.inputs = [weakref.ref(x) for x in inputs]
         self.outputs = [weakref.ref(y) for y in outputs]
-        
+
         if len(outputs) == 0:
             raise
         return outputs if len(outputs) > 1 else outputs[0]
@@ -33,6 +34,10 @@ class Layer:
     def forward(self, inputs):
         raise NotImplementedError()
     #参数生成器，递归获取所有参数
+
+    def forward(self, inputs):
+        raise NotImplementedError()
+
     def params(self):
         for name in self._params:
             obj = self.__dict__[name]
@@ -104,7 +109,7 @@ class Linear(Layer):
     
 class Conv2d(Layer):
     def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None):
+                 pad=0, nobias=False, dtype=np.float32, in_channels=None,visualize=False):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -112,6 +117,7 @@ class Conv2d(Layer):
         self.stride = stride
         self.pad = pad
         self.dtype = dtype
+        self.visualize = visualize
 
         self.W = Parameter(None, name='W')
         if in_channels is not None:
@@ -134,7 +140,7 @@ class Conv2d(Layer):
             self.in_channels = inputs.shape[1]          
             self._init_W()
 
-        y = conv2d(inputs, self.W, self.b, self.stride, self.pad)
+        y = conv2d(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
         return y
 #反卷积层    一般用不到
 # class Deconv2d(Layer):

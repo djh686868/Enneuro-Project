@@ -11,9 +11,9 @@ class Serializer:
         data = {}
         d = state.to_dict()
 
-        if state is Module:
+        if isinstance(state, Module):
             data.update(model_state=d)
-        elif state is Optimizer:
+        elif isinstance(state, Optimizer):
             data.update(optim_state=d)
         else:
             data = d
@@ -29,9 +29,9 @@ class Serializer:
         data = dict(loaded)
         d = {}
 
-        if state is Module:
+        if isinstance(state, Module):
             d = data.get('model_state',{})
-        elif state is Optimizer:
+        elif isinstance(state, Optimizer):
             d = data.get('optim_state',{})
         else:
             d = data

@@ -12,6 +12,7 @@ from eneuro.base import Tensor
 from eneuro.nn.optim import SGD
 from eneuro.nn.loss import crossEntropyError
 from eneuro.train import Trainer, Evaluator
+from eneuro.utils import Visualizer
 
 # 自定义鸢尾花数据集类
 class IrisDataset(Dataset):
@@ -103,7 +104,7 @@ def train_iris_classifier():
     
     # 1. 准备数据
     # 使用绝对路径确保文件能被正确找到
-    file_path = "D:\\gzs\\gitHub\\Enneuro-Project\\code\\testdata\\Iris.csv"
+    file_path = "code\\testdata\\Iris.csv"
     
     # 加载完整数据集
     full_dataset = IrisDataset(file_path)
@@ -159,16 +160,21 @@ def train_iris_classifier():
     # 3. 设置损失函数和优化器
     loss_fn = crossEntropyError
     optimizer = SGD(model.params(), lr=0.1)
+
+    visualizer = Visualizer(num_classes=output_dim)
     
     # 4. 创建训练器
-    trainer = Trainer(model, loss_fn, optimizer)
+    trainer = Trainer(model, loss_fn, optimizer, visualizer)
     
     # 5. 训练模型
     trainer.fit(train_loader, val_loader, epochs=100, batch_size=32, verbose=True)
 
     # 6. 评估模型
-    evaluator = Evaluator(model, loss_fn)
+    evaluator = Evaluator(model, loss_fn, visualizer)
     evaluator.evaluate(test_loader, batch_size=32, verbose=True)
+    
+    # 7. 绘制所有图表
+    visualizer.plot_all()
     
 # 运行测试
 if __name__ == "__main__":

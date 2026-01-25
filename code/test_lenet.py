@@ -3,6 +3,8 @@ import numpy as np
 from pathlib import Path
 import pickle
 import gzip
+from eneuro.nn.module import Module
+from eneuro.utils import Visualizer
 
 # 从 train_lenet_local_mnist.py 复制并修复
 def load_mnist_from_pkl(pkl_path):
@@ -150,7 +152,7 @@ class SimpleDataLoader:
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
 
 # 从 lenet_custom.py 复制 LeNet 定义
-class LeNet:
+class LeNet(Module):
     """LeNet模型"""
     
     def __init__(self, num_classes=10, input_channels=1, input_size=28):
@@ -162,11 +164,11 @@ class LeNet:
         
         # 保存函数引用
         self.F = F
-        
+
         # 卷积层参数
-        self.conv1 = Conv2d(6, kernel_size=5, stride=1)  # 输出通道: 6
+        self.conv1 = Conv2d(6, kernel_size=5, stride=1, visualize=True)  # 输出通道: 6
         self.conv2 = Conv2d(16, kernel_size=5, stride=1) # 输出通道: 16
-        
+
         # 计算全连接层输入维度
         # 经过两次池化后，特征图尺寸为 input_size // 4 - 3
         feature_size = (input_size // 4) - 3  # 对于28: (28//4)-3 = 7-3 = 4
@@ -197,7 +199,7 @@ class LeNet:
         # 第一卷积块: Conv -> Sigmoid -> MaxPool
         x = self.conv1(x)
         x = self.F.sigmoid(x)
-        x = self.F.pooling(x, 2, 2)  # kernel_size=2, stride=2
+        x = self.F.pooling(x, 2, 2, visualize=True)  # kernel_size=2, stride=2
         
         # 第二卷积块: Conv -> Sigmoid -> MaxPool
         x = self.conv2(x)
@@ -237,7 +239,7 @@ def train_lenet_local_fixed():
     print("开始使用本地MNIST文件训练LeNet...")
     
     # 1. 加载数据
-    data_dir = "D:\\gzs\\gitHub\\Enneuro-Project\\code\\testdata\\MNIST_data"
+    data_dir = "D:\\eneuro\\Enneuro-Project\\code\\testdata\\MNIST_data"
     pkl_path = Path(data_dir) / "mnist.pkl"
     
     if pkl_path.exists():
@@ -298,22 +300,29 @@ def train_lenet_local_fixed():
     # 8. 设置优化器和损失函数
     optimizer = Adam(model.params(), lr=0.001)
     loss_fn = crossEntropyError
+
+    visualizer = Visualizer(num_classes=10)
     
     # 9. 训练模型
-    trainer = Trainer(model, loss_fn, optimizer)
+    trainer = Trainer(model, loss_fn, optimizer, visualizer)
     
     print("\n开始训练...")
     trainer.fit(
         train_loader, 
         test_loader, 
-        epochs=10,
+        epochs=1,
         batch_size=batch_size,
         verbose=True
     )
     
     # 10. 最终评估
+    # from eneuro.global_config import VISUAL_CONFIG
+    # VISUAL_CONFIG["ENABLE_ALL_LAYERS"] = True  # 修改字典的值，所有模块都能读到
+    from eneuro.global_config import visualize_model_first_batch
+    visualize_model_first_batch(model, test_loader)
+
     print("\n最终评估...")
-    evaluator = Evaluator(model, loss_fn)
+    evaluator = Evaluator(model, loss_fn, visualizer)
     test_loss, test_acc = evaluator.evaluate(
         test_loader, 
         batch_size=batch_size, 
@@ -323,6 +332,8 @@ def train_lenet_local_fixed():
     print(f"\n训练完成!")
     print(f"测试准确率: {test_acc:.4f} ({test_acc*100:.2f}%)")
     print(f"测试损失: {test_loss:.4f}")
+
+    visualizer.plot_all()
     
     return model, test_acc
 
