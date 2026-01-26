@@ -12,7 +12,7 @@ from eneuro.base import Tensor
 from eneuro.nn.optim import SGD
 from eneuro.nn.loss import crossEntropyError,sigmoidCrossEntropy,softmaxCrossEntropy,meanSquaredError
 from eneuro.train import Trainer, Evaluator
-from eneuro.utils import Visualizer
+from eneuro.utils import Visualizer, save_checkpoint, load_checkpoint, Serializer
 
 # 自定义鸢尾花数据集类
 class IrisDataset(Dataset):
@@ -159,7 +159,8 @@ def train_iris_classifier():
     
     # 3. 设置损失函数和优化器
     loss_fn = crossEntropyError
-    optimizer = SGD(model.params(), lr=0.1)
+    #optimizer = SGD(model.params(), lr=0.1)
+    optimizer = SGD(model.params(), lr=0.1, l2_lambda=0.0, l1_lambda=0.001)
 
     visualizer = Visualizer(num_classes=output_dim)
     
@@ -175,6 +176,8 @@ def train_iris_classifier():
     
     # 7. 绘制所有图表
     visualizer.plot_all()
+
+    Serializer.save(model, 'test_l1.json')
     
 # 运行测试
 if __name__ == "__main__":

@@ -11,14 +11,21 @@ V_KEY = 'v'
 BETA1_KEY = 'beta1'
 BETA2_KEY = 'beta2'
 EPS_KEY = 'eps'
+L2_LAMBDA_KEY = 'l2_lambda'
+L1_LAMBDA_KEY = 'l1_lambda'
 
 class Optimizer(StateDict):
     params: list[Parameter]
     _state: dict[str, Any] = {}
 
-    def __init__(self, params: list[Parameter], lr: float = 0.01):
+    def __init__(self, params: list[Parameter], lr: float = 0.01,
+                 l2_lambda: float = 0.0, l1_lambda: float = 0.0):
         self.params = list(params)
-        self._state.update(lr=lr)
+        self._state.update(
+            lr=lr, 
+            l2_lambda=l2_lambda, 
+            l1_lambda=l1_lambda
+        )
     
     def step(self):
         """执行单步参数更新，子类必须实现"""
@@ -60,16 +67,43 @@ class Optimizer(StateDict):
             else:
                 new_state[k] = v
         self._state = new_state
+
+    def _apply_regularization(self, param: Parameter, grad_data: np.ndarray) -> np.ndarray:
+        """应用正则化到梯度"""
+        l2_lambda = self._state.get(L2_LAMBDA_KEY, 0.0)
+        l1_lambda = self._state.get(L1_LAMBDA_KEY, 0.0)
+        
+        # L2正则化 (权重衰减)
+        # Loss = Loss + l2_lambda * ||w||^2
+        # dLoss/dw = dLoss/dw + 2 * l2_lambda * w
+        if l2_lambda > 0:
+            grad_data += 2 * l2_lambda * param.data
+        
+        # L1正则化
+        # Loss = Loss + l1_lambda * ||w||_1
+        # dLoss/dw = dLoss/dw + l1_lambda * sign(w)
+        if l1_lambda > 0:
+            # 使用次梯度处理0值
+            sign = np.sign(param.data)
+            sign[param.data == 0] = 0  # 在0处，次梯度可以是[-1, 1]之间的任意值，通常取0
+            grad_data += l1_lambda * sign
+        
+        return grad_data
     
 class SGD(Optimizer):
-    def __init__(self, params: list[Parameter], lr: float = 0.01):
-        super().__init__(params, lr)
+    def __init__(self, params: list[Parameter], lr: float = 0.01,
+                 l2_lambda: float = 0.0, l1_lambda: float = 0.0):
+        super().__init__(params, lr, l2_lambda, l1_lambda)
 
     def step(self):
         for param in self.params:
             if param.grad is None:
                 continue
             
+            # 应用正则化
+            grad = self._apply_regularization(param, param.grad.data)
+            param.grad.data = grad
+
             param.data -= self._state[LR_KEY] * param.grad.data
             
             '''
@@ -81,8 +115,9 @@ class SGD(Optimizer):
             '''
     
 class MomentumSGD(Optimizer):
-    def __init__(self, params: list[Parameter], lr: float = 0.01, momentum: float = 0.9):
-        super().__init__(params, lr)
+    def __init__(self, params: list[Parameter], lr: float = 0.01,
+                 l2_lambda: float = 0.0, l1_lambda: float = 0.0, momentum: float = 0.9):
+        super().__init__(params, lr, l2_lambda, l1_lambda)
         self._state.update(m=momentum)
         
         if V_KEY not in self._state:
@@ -97,6 +132,10 @@ class MomentumSGD(Optimizer):
             if param.grad is None:
                 continue
 
+            # 应用正则化
+            grad = self._apply_regularization(param, param.grad.data)
+            param.grad.data = grad
+
             _v = _vdict.get(str(idx), np.zeros_like(param.data))
 
             # v = v*m - lr*grad
@@ -107,8 +146,9 @@ class MomentumSGD(Optimizer):
             self._state[V_KEY][str(idx)] = _v
     
 class Adam(Optimizer):
-    def __init__(self, params: list[Parameter], lr: float = 0.01, beta1: float = 0.9, beta2: float = 0.999, eps = 1e-10):
-        super().__init__(params, lr)
+    def __init__(self, params: list[Parameter], lr: float = 0.01,
+                 l2_lambda: float = 0.0, l1_lambda: float = 0.0, beta1: float = 0.9, beta2: float = 0.999, eps = 1e-10):
+        super().__init__(params, lr, l2_lambda, l1_lambda)
         self._state.update(beta1=beta1, beta2=beta2, eps=eps)
 
         if S_KEY not in self._state:
@@ -131,6 +171,10 @@ class Adam(Optimizer):
             param = self.params[idx]
             if param.grad is None:
                 continue
+
+            # 应用正则化
+            grad = self._apply_regularization(param, param.grad.data)
+            param.grad.data = grad
 
             _v = _vdict.get(str(idx), np.zeros_like(param.data))
             _s = _sdict.get(str(idx), np.zeros_like(param.data))
