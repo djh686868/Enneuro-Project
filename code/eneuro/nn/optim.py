@@ -69,6 +69,11 @@ class Optimizer(StateDict):
         self._state = new_state
 
     def _apply_regularization(self, param: Parameter, grad_data: np.ndarray) -> np.ndarray:
+        if param.name == 'b':
+            return grad_data  # 偏置项不进行正则化
+        
+        #print(param.name)
+
         """应用正则化到梯度"""
         l2_lambda = self._state.get(L2_LAMBDA_KEY, 0.0)
         l1_lambda = self._state.get(L1_LAMBDA_KEY, 0.0)

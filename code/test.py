@@ -160,7 +160,7 @@ def train_iris_classifier():
     # 3. 设置损失函数和优化器
     loss_fn = crossEntropyError
     #optimizer = SGD(model.params(), lr=0.1)
-    optimizer = SGD(model.params(), lr=0.1, l2_lambda=0.0, l1_lambda=0.001)
+    optimizer = SGD(model.params(), lr=0.1, l2_lambda=0.001, l1_lambda=0.000)
 
     visualizer = Visualizer(num_classes=output_dim)
     
@@ -177,7 +177,7 @@ def train_iris_classifier():
     # 7. 绘制所有图表
     visualizer.plot_all()
 
-    Serializer.save(model, 'test_l1.json')
+    Serializer.save(model, 'test_l2.json')
     
 # 运行测试
 if __name__ == "__main__":
