@@ -7,7 +7,8 @@ from ..base.parameter import Parameter
 from ..base.functions import pair
 from ..utils.statedict import StateDict
 
-
+from ..global_config import VISUAL_CONFIG
+import cv2
 
 #function为方法，通用工具舍弃保存参数功能，layer为层，保存参数功能，也具备层层嵌套功能
 class Layer:
@@ -25,7 +26,7 @@ class Layer:
             outputs = (outputs,)
         self.inputs = [weakref.ref(x) for x in inputs]
         self.outputs = [weakref.ref(y) for y in outputs]
-        
+
         if len(outputs) == 0:
             raise
         return outputs if len(outputs) > 1 else outputs[0]
@@ -33,6 +34,10 @@ class Layer:
     def forward(self, inputs):
         raise NotImplementedError()
     #参数生成器，递归获取所有参数
+
+    def forward(self, inputs):
+        raise NotImplementedError()
+
     def params(self):
         for name in self._params:
             obj = self.__dict__[name]
@@ -104,7 +109,7 @@ class Linear(Layer):
     
 class Conv2d(Layer):
     def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None):
+                 pad=0, nobias=False, dtype=np.float32, in_channels=None,visualize=False):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -112,6 +117,7 @@ class Conv2d(Layer):
         self.stride = stride
         self.pad = pad
         self.dtype = dtype
+        self.visualize = visualize
 
         self.W = Parameter(None, name='W')
         if in_channels is not None:
@@ -134,7 +140,7 @@ class Conv2d(Layer):
             self.in_channels = inputs.shape[1]          
             self._init_W()
 
-        y = conv2d(inputs, self.W, self.b, self.stride, self.pad)
+        y = conv2d(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
         return y
 #反卷积层    一般用不到
 # class Deconv2d(Layer):
@@ -186,57 +192,71 @@ class Module(Layer,StateDict):
             'model_class': self.__class__.__name__,
             'version': '1.0'
         }
-    
+
     def to_dict(self):
-        """实现 Module 接口：完整序列化模型"""
-        # 使用 _flatten_params 获取所有参数
+        """序列化：所有参数都是Tensor，直接处理"""
         params_dict = {}
-        self._flatten_params(params_dict)
-        
-        # 转换为可序列化的格式
+        self._flatten_params(params_dict)  # 输出全是Tensor类型
+
         serializable_params = {}
         for key, param in params_dict.items():
-            if hasattr(param, 'data'):
-                # 假设 Parameter 有 data 和 grad 属性
-                serializable_params[key] = {
-                    'data': param.data.tolist() if hasattr(param.data, 'tolist') else param.data,
-                    'grad': param.grad.tolist() if param.grad is not None and hasattr(param.grad, 'tolist') else param.grad,
-                    'requires_grad': getattr(param, 'requires_grad', True)
-                }
-        
+            # 无需类型判断：param一定是Tensor
+            serializable_params[key] = {
+                'data': self._to_pure_list(param.data),
+                'grad': self._to_pure_list(param.grad.data) if (
+                            param.grad is not None and hasattr(param.grad, 'data')) else None,
+                'requires_grad': param.requires_grad,
+                'name': param.name
+            }
+
         return {
             'metadata': self.metadata,
             'params': serializable_params,
             'training': getattr(self, 'training', True),
             'model_class': self.__class__.__name__
         }
-    
+
     def from_dict(self, d):
-        """实现 Module 接口：从字典恢复模型"""
+        """反序列化：所有参数都是Tensor，直接恢复"""
         params_data = d.get('params', {})
-        
-        # 获取当前模型的扁平化参数
         current_params = {}
-        self._flatten_params(current_params)
-        
-        # 恢复参数值
+        self._flatten_params(current_params)  # 输出全是Tensor类型
+
         for key, param_data in params_data.items():
             if key in current_params:
+                # 无需类型判断：current_params[key]一定是Tensor
                 param = current_params[key]
-                if 'data' in param_data and hasattr(param, 'data'):
-                    # 恢复数据
-                    param.data = np.array(param_data['data']) if isinstance(param_data['data'], list) else param_data['data']
-                
+                # 恢复Tensor核心属性
+                param.data = np.array(self._from_pure_list(param_data['data']))
+                # 恢复梯度（仍是Tensor类型）
                 if 'grad' in param_data and param_data['grad'] is not None:
-                    # 恢复梯度
-                    param.grad = np.array(param_data['grad']) if isinstance(param_data['grad'], list) else param_data['grad']
-                
-                if 'requires_grad' in param_data:
-                    setattr(param, 'requires_grad', param_data['requires_grad'])
-        
+                    param.grad = Tensor(np.array(self._from_pure_list(param_data['grad'])), requires_grad=False)
+                else:
+                    param.grad = None
+                # 恢复其他属性
+                param.requires_grad = param_data.get('requires_grad', False)
+                param.name = param_data.get('name')
+
         # 恢复训练状态
         if 'training' in d:
             self.training = d['training']
+
+    # 辅助函数：仅处理numpy数组→纯列表（适配Tensor）
+    def _to_pure_list(self, tensor_like):
+        if isinstance(tensor_like, np.ndarray):
+            return tensor_like.tolist()
+        elif isinstance(tensor_like, (list, tuple)):
+            return [self._to_pure_list(item) for item in tensor_like]
+        elif isinstance(tensor_like, (int, float, bool)):
+            return tensor_like
+        else:
+            return float(tensor_like)
+
+    def _from_pure_list(self, pure_list):
+        if isinstance(pure_list, list):
+            return [self._from_pure_list(item) for item in pure_list]
+        else:
+            return pure_list
     
     #"""类似PyTorch的state_dict，只返回参数数据"""
     # def state_dict(self):    
