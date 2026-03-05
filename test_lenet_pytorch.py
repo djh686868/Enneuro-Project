@@ -10,8 +10,6 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pickle
 import gzip
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
 
 class LeNetPyTorch(nn.Module):
     """PyTorch版本的LeNet，与我们的框架保持一致"""
@@ -52,25 +50,7 @@ class LeNetPyTorch(nn.Module):
 
 def load_mnist_data_pytorch(data_dir):
     """为PyTorch加载MNIST数据"""
-    # 尝试多种路径，确保无论从哪里运行都能找到数据
-    possible_paths = [
-        Path(data_dir) / "mnist.pkl",
-        Path(".") / data_dir / "mnist.pkl",
-        Path("..") / data_dir / "mnist.pkl",
-        Path("code") / "testdata" / "MNIST_data" / "mnist.pkl",
-        Path("..") / "code" / "testdata" / "MNIST_data" / "mnist.pkl"
-    ]
-    
-    pkl_path = None
-    for path in possible_paths:
-        if path.exists():
-            pkl_path = path
-            break
-    
-    if pkl_path is None:
-        raise FileNotFoundError(f"找不到mnist.pkl文件，尝试了以下路径:\n{chr(10).join(str(p) for p in possible_paths)}")
-    
-    print(f"使用数据文件: {pkl_path}")
+    pkl_path = Path(data_dir) / "mnist.pkl"
     
     # 加载数据
     try:
@@ -241,76 +221,43 @@ def train_pytorch_lenet(data_dir, epochs=10, batch_size=64, lr=0.001, device='cu
     
     return model, history
 
-def plot_all_visualization(model, history, X_test, y_test, device, framework="PyTorch", save_path=None):
-    """绘制与EnNeuro.Visualizer.plot_all()相同格式的训练可视化"""
+def plot_training_history(history, title="PyTorch训练历史"):
+    """绘制训练历史"""
     epochs = range(1, len(history['train_loss']) + 1)
     
-    # 2x2子图布局，与EnNeuro格式一致
-    fig, axes = plt.subplots(2, 2, figsize=(7.5, 6))
-    fig.suptitle('Training Visualization', fontsize=16)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     
-    # 1. 左上角：损失曲线
-    axes[0, 0].plot(epochs, history['train_loss'], label='Train Loss')
-    axes[0, 0].plot(epochs, history['test_loss'], label='Val Loss')
-    axes[0, 0].set_title('Loss Curve')
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True)
+    # 损失曲线
+    axes[0].plot(epochs, history['train_loss'], 'b-', label='训练损失')
+    axes[0].plot(epochs, history['test_loss'], 'r-', label='测试损失')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('损失')
+    axes[0].set_title('损失曲线')
+    axes[0].legend()
+    axes[0].grid(True)
     
-    # 2. 右上角：准确率曲线
-    axes[0, 1].plot(epochs, history['train_acc'], label='Train Acc')
-    axes[0, 1].plot(epochs, history['test_acc'], label='Val Acc')
-    axes[0, 1].set_title('Accuracy Curve')
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('Accuracy')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True)
+    # 准确率曲线
+    axes[1].plot(epochs, history['train_acc'], 'b-', label='训练准确率')
+    axes[1].plot(epochs, history['test_acc'], 'r-', label='测试准确率')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('准确率 (%)')
+    axes[1].set_title('准确率曲线')
+    axes[1].legend()
+    axes[1].grid(True)
     
-    # 3. 左下角：时间消耗曲线
-    axes[1, 0].plot(epochs, history['time_per_epoch'])
-    axes[1, 0].set_title('Time Consumption per Epoch')
-    axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('Time (seconds)')
-    axes[1, 0].grid(True)
+    # 时间曲线
+    axes[2].plot(epochs, history['time_per_epoch'], 'g-', label='每epoch时间')
+    axes[2].set_xlabel('Epoch')
+    axes[2].set_ylabel('时间 (秒)')
+    axes[2].set_title('训练时间')
+    axes[2].legend()
+    axes[2].grid(True)
     
-    # 4. 右下角：混淆矩阵
-    # 获取预测结果
-    model.eval()
-    X_test_tensor = torch.from_numpy(X_test).to(device)
-    
-    # 分批处理以避免内存问题
-    all_predictions = []
-    batch_size = 128
-    
-    with torch.no_grad():
-        for i in range(0, len(X_test), batch_size):
-            batch = X_test_tensor[i:i+batch_size]
-            output = model(batch)
-            predictions = output.argmax(dim=1).cpu().numpy()
-            all_predictions.extend(predictions)
-    
-    # 计算混淆矩阵
-    cm = confusion_matrix(y_test, all_predictions)
-    
-    # 绘制混淆矩阵
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[1, 1])
-    axes[1, 1].set_title('Confusion Matrix')
-    axes[1, 1].set_xlabel('Predicted Label')
-    axes[1, 1].set_ylabel('True Label')
-    
+    plt.suptitle(title, fontsize=16)
     plt.tight_layout()
-    plt.subplots_adjust(top=0.92)
-    
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    else:
-        plt.savefig(f"{framework}_training_visualization.png", dpi=300, bbox_inches='tight')
-    
     plt.show()
-    plt.close()
 
-def test_pytorch_model(model, history, data_dir, device='cuda'):
+def test_pytorch_model(model, data_dir, device='cuda'):
     """测试PyTorch模型"""
     if device == 'cuda' and torch.cuda.is_available():
         device = torch.device('cuda')
@@ -322,11 +269,10 @@ def test_pytorch_model(model, history, data_dir, device='cuda'):
     
     # 加载数据
     X_train, y_train, X_test, y_test = load_mnist_data_pytorch(data_dir)
-    
-    # 测试集评估
     X_test_tensor = torch.from_numpy(X_test).to(device)
     y_test_tensor = torch.from_numpy(y_test).to(device)
     
+    # 测试集评估
     test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     
@@ -367,7 +313,7 @@ def test_pytorch_model(model, history, data_dir, device='cuda'):
 
 if __name__ == "__main__":
     # 训练参数
-    data_dir = "code/testdata/MNIST_data"
+    data_dir = "D:\\gzs\\gitHub\\Enneuro-Project\\temp\\code\\testdata\\MNIST_data"
     epochs = 10
     batch_size = 64
     lr = 0.001
@@ -378,20 +324,12 @@ if __name__ == "__main__":
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        device='cpu'  # 可以改为'gpu'如果有GPU
+        device='cpu'  # 可以改为'cpu'如果没有GPU
     )
     
-    # 加载数据用于可视化
-    X_train, y_train, X_test, y_test = load_mnist_data_pytorch(data_dir)
-    
-    # 使用与EnNeuro相同格式的可视化
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model.to(device)
-    plot_all_visualization(model, history, X_test, y_test, device, framework="PyTorch")
-    
-    # 测试模型
-    test_pytorch_model(model, history, data_dir)
+    # 绘制训练历史
+    plot_training_history(history, "PyTorch LeNet训练历史")
     
     # 保存模型
-    #torch.save(model.state_dict(), "lenet_pytorch.pth")
-    #print("模型已保存为 lenet_pytorch.pth")
+    torch.save(model.state_dict(), "lenet_pytorch.pth")
+    print("模型已保存为 lenet_pytorch.pth")

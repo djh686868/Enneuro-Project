@@ -1,7 +1,7 @@
 import numpy as np
 from ..base import Tensor
 from ..base import as_Tensor
-from .meters import TimeMeter, AverageMeter
+# from .meters import TimeMeter, AverageMeter
 from ..base import Config
 
 import sys
@@ -19,14 +19,27 @@ def progress_bar(current, total, epoch, loss, acc, width=30): # 进度条
     sys.stdout.flush()
 
 class Trainer:
-    def __init__(self, model, loss_fn, optimizer):
+    def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self._epoch = 0
+        self.visualizer = visualizer
         # self.loss_meter = AverageMeter('Loss')
         # self.acc_meter = AverageMeter('Acc')
         # self.time_meter = TimeMeter()
+
+        # 早停
+        self.enable_early_stop = enable_early_stop
+
+    def init_early_stop(self, patience=5, mode='loss'):
+        self.patience = patience
+        self.mode = mode
+        self.best_val_loss = np.inf
+        self.best_val_acc = 0
+        self.epochs_no_improve = 0
+        self.best_weights = None
+
 
     def fit(self, train_loader, val_loader, epochs=10, batch_size=32, 
                 verbose=True, device='cpu'):
@@ -51,11 +64,42 @@ class Trainer:
             if verbose:
                 print(f">>>>>>>>>>> Epoch loss: {loss:.4f} - Epoch acc: {acc:.4f}")
             toc = time.time()
+            epoch_time = toc - tic
             if verbose:
-                print(f"Time cost: {toc-tic:.2f} seconds")
+                print(f"Time cost: {epoch_time:.2f} seconds")
+            
+            # 使用visualizer更新epoch时间
+            if self.visualizer is not None:
+                self.visualizer.update_epoch(epoch_time)
+            
+            # 早停
+            # if self.enable_early_stop:
+            #     if self.mode == 'loss':
+            #         if loss < self.best_val_loss:
+            #             self.best_val_loss = loss
+            #             self.best_weights = self.model.get_params()
+            #             self.epochs_no_improve = 0
+            #         else:
+            #             self.epochs_no_improve += 1
+            #     elif self.mode == 'acc':
+            #         if acc > self.best_val_acc:
+            #             self.best_val_acc = acc
+            #             self.best_weights = self.model.get_params()
+            #             self.epochs_no_improve = 0
+            #         else:
+            #             self.epochs_no_improve += 1
+            #     else:
+            #         raise ValueError(f"Invalid mode: {self.mode}")
+                
+            #     if self.epochs_no_improve >= self.patience:
+            #         print(f"Early stopping after {epoch+1} epochs")
+            #         break
 
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0
+        y_true_list = []
+        y_pred_list = []
+        
         for batch_idx, (Xb, yb) in enumerate(data_loader):
             Xb = as_Tensor(Xb)
             yb = as_Tensor(yb)
@@ -67,17 +111,12 @@ class Trainer:
             else:
                 y_true = yb
 
-            '''
-            print(type(y_hat),y_hat.shape)
-            print(y_hat)
-            print(type(y_true),y_true.shape)
-            print(y_true)'''
             loss = self.loss_fn(y_hat, y_true)
 
             if y_hat.ndim > 1:
-                y_hat = y_hat.argmax(axis=1)
+                y_pred = y_hat.argmax(axis=1)
             else:
-                y_hat = y_hat
+                y_pred = y_hat
 
             if training:
                 self.model.cleargrads()
@@ -87,10 +126,22 @@ class Trainer:
                 '''
                 self.optimizer.step()
             
+            # 收集预测结果和真实标签，用于绘制混淆矩阵
+            y_true_list.append(y_true)
+            y_pred_list.append(y_pred)
+            
             loss_sum += loss.data * len(Xb)
-            acc_sum += (y_hat == y_true).sum()
+            acc_sum += (y_pred == y_true).sum()
             sample_num += len(Xb)
 
+            # 使用visualizer更新指标
+            if self.visualizer is not None:
+                batch_acc = (y_pred == y_true).sum() / len(Xb)
+                if training:
+                    self.visualizer.update_train(loss.data, batch_acc, batch_size=len(Xb))
+                else:
+                    self.visualizer.update_val(loss.data, batch_acc, batch_size=len(Xb))
+            
             # self.loss_meter.update(loss.data)
             # self.acc_meter.update(acc_sum / sample_num)
             
@@ -98,19 +149,33 @@ class Trainer:
                 progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, acc_sum / sample_num)
         if verbose:
             sys.stdout.write('\n')
-
-        return loss_sum / sample_num, acc_sum / sample_num 
+        
+        # 计算epoch级别的指标
+        epoch_loss = loss_sum / sample_num
+        epoch_acc = acc_sum / sample_num
+        
+        # 更新visualizer的预测结果
+        if self.visualizer is not None and not training:
+            # 只在验证时更新预测结果，因为训练集可能很大
+            for yt, yp in zip(y_true_list, y_pred_list):
+                self.visualizer.update_predictions(yt, yp)
+        
+        return epoch_loss, epoch_acc 
 
 class Evaluator:
-    def __init__(self, model, loss_fn):
+    def __init__(self, model, loss_fn, visualizer=None):
         self.model = model
         self.loss_fn = loss_fn
+        self.visualizer = visualizer
         # self.loss_meter = AverageMeter('Loss')
         # self.acc_meter = AverageMeter('Acc')
         # self.time_meter = TimeMeter()
 
     def evaluate(self, data_loader, batch_size=32, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0
+        y_true_list = []
+        y_pred_list = []
+        
         if verbose:
             print(f"======================= Start evaluation =======================")
 
@@ -131,17 +196,32 @@ class Evaluator:
                 loss = self.loss_fn(y_hat, y_true) 
             
             if y_hat.ndim > 1:
-                y_hat = y_hat.data.argmax(axis=1)
+                y_pred = y_hat.data.argmax(axis=1)
             else:
-                y_hat = y_hat.data
+                y_pred = y_hat.data
+            
+            # 收集预测结果和真实标签
+            y_true_list.append(y_true)
+            y_pred_list.append(y_pred)
+            
             loss_sum += loss.data * len(Xb)
-            acc_sum += (y_hat == y_true).sum()
+            acc_sum += (y_pred == y_true).sum()
             sample_num += len(Xb)
 
+            # 使用visualizer更新指标
+            if self.visualizer is not None:
+                batch_acc = (y_pred == y_true).sum() / len(Xb)
+                self.visualizer.update_val(loss.data, batch_acc, batch_size=len(Xb))
+                self.visualizer.update_predictions(y_true, y_pred)
+            
             # self.loss_meter.update(loss.data)
             # self.acc_meter.update(acc_sum / sample_num)
         
-        return loss_sum / sample_num, acc_sum / sample_num
+        # 计算评估结果
+        loss = loss_sum / sample_num
+        acc = acc_sum / sample_num
+        
+        return loss, acc
 
         
 
