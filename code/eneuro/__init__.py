@@ -1,4 +1,5 @@
 __all__ = []
+__version__ = "0.1dev"
 
 from . import utils
 __all__.append('utils')
