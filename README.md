@@ -237,8 +237,8 @@ trainer.train(train_loader, epochs=10, validate=True)
 
 ## 联系方式
 
-- 项目链接：https://github.com/yourusername/enneuro
-- 问题反馈：https://github.com/yourusername/enneuro/issues
+- 项目链接：https://github.com/djh686868/Enneuro-Project
+- 问题反馈：https://github.com/djh686868/Enneuro-Project/issues
 
 ---
 
