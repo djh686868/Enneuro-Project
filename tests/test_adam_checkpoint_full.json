@@ -1,0 +1,14 @@
+{
+    "model_state": {
+        "metadata": {
+            "model_class": "SimpleModel",
+            "version": "1.0"
+        },
+        "params": {
+            "fc1/b": {
+                "data": [
+                    -0.003000000026077032,
+                    -0.003000000026077032,
+                    -0.003000000026077032
+                ],
+                "grad": 
