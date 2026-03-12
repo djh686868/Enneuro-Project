@@ -4,13 +4,17 @@ from ..base import Tensor, as_Tensor
 
 class MSELoss(Function):
     def forward(self, x, t):
+        if t.ndim == 1 and x.ndim == 2:
+            t = t.reshape(len(t), 1)
+        self.x = x
+        self.t = t
         self.diff = x - t
         y = np.sum(self.diff ** 2) / len(x)
         return y
 
     def backward(self, dout=1):
-        dx = 2 * self.diff / len(self.diff) * dout
-        return dx
+        dx = 2 * self.diff / len(self.diff)
+        return as_Tensor(dx) * dout
 
 class SoftmaxWithLoss(Function):
     def forward(self, x, t):
@@ -36,22 +40,22 @@ class SoftmaxWithLoss(Function):
             dx[np.arange(batchSize), self.t.flatten()] -= 1
             dx = dx / batchSize
             
-        return dx * dout
+        return as_Tensor(dx) * dout
 
 class SigmoidWithLoss(Function):
     def forward(self, x, t):
         # sigmoid函数
         self.y = 1 / (1 + np.exp(-x))
         self.t = t
-        
+
         # 二元交叉熵损失
         loss = -np.sum(t * np.log(self.y + 1e-7) + (1 - t) * np.log(1 - self.y + 1e-7)) / len(x)
         return loss
 
     def backward(self, dout=1):
         batchSize = self.t.shape[0]
-        dx = (self.y - self.t) / batchSize * dout
-        return dx
+        dx = (self.y - self.t) / batchSize
+        return as_Tensor(dx) * dout
 
 class CrossEntropyLoss(Function):
     def forward(self, x, t):

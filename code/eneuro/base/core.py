@@ -5,6 +5,9 @@ import numpy as np
 import weakref
 import contextlib
 from functools import total_ordering
+from eneuro.base import functions as f
+from eneuro.global_config import VISUAL_CONFIG
+import cv2
 
 
 class Config:
@@ -207,6 +210,9 @@ def as_Tensor(x):
 
 
 class Function:
+    def __init__(self):
+        self.visualize=False
+
     def __call__(self, *inputs):
         inputs = [as_Tensor(x) for x in inputs]#判断or转化类型
 
@@ -225,6 +231,9 @@ class Function:
             output.set_creator(self)
         self.inputs = inputs
         self.outputs = [weakref.ref(output) for output in outputs]#弱引用，避免循环引用
+        current_layer_name = self.__class__.__name__.lower()
+        if VISUAL_CONFIG["ENABLE_ALL_LAYERS"] and self.visualize:
+            self._print_output(outputs[0])
 
         return outputs if len(outputs) > 1 else outputs[0]
 
@@ -234,6 +243,29 @@ class Function:
     def backward(self, gys):
         raise NotImplementedError()
 
+    def _print_output(self, output_tensor):
+        # 和Layer类的_print_output逻辑完全一致（复制粘贴）
+        data = output_tensor.data if hasattr(output_tensor, 'data') else output_tensor
+        if data.ndim != 4:
+            return
+
+        N, C, H, W = data.shape
+        sample_idx = 0
+        scale = 20
+        layer_name = self.__class__.__name__
+
+        for channel_idx in range(C):
+            img = data[sample_idx, channel_idx]
+            img = (img - img.min()) / (img.max() - img.min() + 1e-8) * 255
+            img = cv2.resize(img.astype(np.uint8), (W * scale, H * scale))
+
+            window_name = f"{layer_name} channel{channel_idx + 1} image"
+            cv2.putText(img, window_name, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.imshow(window_name, img)
+            print(f"[可视化] {window_name}")
+
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 '''
 base operators
@@ -271,8 +303,8 @@ class Add(Function):
     def backward(self, gy):
         gx0, gx1 = gy, gy
         if self.x0_shape != self.x1_shape:
-            gx0 = base.functions.sum_to(gx0, self.x0_shape)
-            gx1 = base.functions.sum_to(gx1, self.x1_shape)
+            gx0 = f.sum_to(gx0, self.x0_shape)
+            gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0, gx1
 def add(x0, x1):
     x1 = as_array(x1)
@@ -291,8 +323,8 @@ class Mul(Function):
         gx0, gx1 = gy, gy
         x0, x1 = self.inputs # cause gy is a variable now, you can use self.inputs to get the data
         if self.x0_shape != self.x1_shape:
-            gx0 = base.functions.sum_to(gx0, self.x0_shape)
-            gx1 = base.functions.sum_to(gx1, self.x1_shape)
+            gx0 = f.sum_to(gx0, self.x0_shape)
+            gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0 * x1, gx1 * x0
 def mul(x0, x1):
     x1 = as_array(x1)
@@ -320,8 +352,8 @@ class Sub(Function):
     def backward(self, gy):
         gx0, gx1 = gy, gy
         if self.x0_shape != self.x1_shape:
-            gx0 = base.functions.sum_to(gx0, self.x0_shape)
-            gx1 = base.functions.sum_to(gx1, self.x1_shape)
+            gx0 = f.sum_to(gx0, self.x0_shape)
+            gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0, -gx1
 
 def sub(x0, x1):
@@ -344,8 +376,8 @@ class Div(Function):
         gx0, gx1 = gy, gy
         x0, x1 = self.inputs
         if self.x0_shape != self.x1_shape:
-            gx0 = base.functions.sum_to(gx0, self.x0_shape)
-            gx1 = base.functions.sum_to(gx1, self.x1_shape)
+            gx0 = f.sum_to(gx0, self.x0_shape)
+            gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0 / x1, -gx1 * x0 / x1 ** 2
 
 def div(x0, x1):
