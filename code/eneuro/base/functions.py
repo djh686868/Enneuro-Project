@@ -535,12 +535,221 @@ def conv2d(x, W, b=None, stride=1, pad=0):
     return Conv2d(stride, pad)(x, W, b)
 
 
-class Deconv2d(Function):
-    def __init__(self, stride=1, pad=0, outsize=None):
+class DepthwiseConv2d(Function):
+    def __init__(self, stride=1, pad=0, dilation=1):
+        super().__init__()
+        self.stride = pair(stride)
+        self.pad = pair(pad)
+        self.dilation = pair(dilation)
+
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
+        
+        N, C, H, W_in = x.shape
+        C_out, _, KH, KW = W.shape
+        
+        if self.dilation != (1, 1):
+            dilated_KH = KH + (KH - 1) * (self.dilation[0] - 1)
+            dilated_KW = KW + (KW - 1) * (self.dilation[1] - 1)
+        else:
+            dilated_KH, dilated_KW = KH, KW
+        
+        col = im2col_array(x, (dilated_KH, dilated_KW), self.stride, self.pad, to_matrix=False)
+        
+        if self.dilation != (1, 1):
+            col_dilated = np.zeros((N, C, KH, KW, col.shape[4], col.shape[5]), dtype=col.dtype)
+            col_dilated[:, :, :, :, :, :] = col[:, :, ::self.dilation[0], ::self.dilation[1], :, :]
+            col = col_dilated
+        
+        y = np.tensordot(col, W, ((1, 2, 3), (1, 2, 3)))
+        if b is not None:
+            y += b
+        y = np.rollaxis(y, 3, 1)
+        return y
+
+    def backward(self, gys):
+        x, W, b = self.inputs
+        gx = depthwise_separable_conv2d(gys, W, b=None, stride=self.stride, pad=self.pad, 
+                                        outsize=(x.shape[2], x.shape[3]))
+        gW = Conv2DGradW(self)(x, gys)
+        gb = None
+        if b.data is not None:
+            gb = gys.sum(axis=(0, 2, 3))
+        return gx, gW, gb
+
+
+class PointwiseConv2d(Function):
+    def __init__(self, stride=1, pad=0):
+        super().__init__()
+        self.stride = pair(stride)
+        self.pad = pair(pad)
+
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
+        
+        N, C, H, W_in = x.shape
+        C_out, _, _, _ = W.shape
+        
+        col = im2col_array(x, (1, 1), self.stride, self.pad, to_matrix=False)
+        
+        y = np.tensordot(col, W, ((1,), (1,)))
+        if b is not None:
+            y += b.reshape(1, -1, 1, 1)
+        y = np.rollaxis(y, 3, 1)
+        return y
+
+    def backward(self, gys):
+        x, W, b = self.inputs
+        gx = conv2d(gys, W, b=None, stride=self.stride, pad=self.pad)
+        gW = Conv2DGradW(self)(x, gys)
+        gb = None
+        if b.data is not None:
+            gb = gys.sum(axis=(0, 2, 3))
+        return gx, gW, gb
+
+
+def depthwise_separable_conv2d(x, W_depth, W_point, b=None, stride=1, pad=0, dilation=1):
+    N, C, H, W_in = x.shape
+    
+    W_depth_expanded = W_depth.reshape(C, 1, W_depth.shape[2], W_depth.shape[3])
+    
+    dw_out = depthwise_conv2d(x, W_depth_expanded, b=None, stride=stride, pad=pad, dilation=dilation)
+    
+    C_dw = dw_out.shape[1]
+    W_point_reshaped = W_point.reshape(-1, C_dw, 1, 1)
+    
+    if b is not None:
+        b_point = b
+    else:
+        b_point = None
+    
+    y = pointwise_conv2d(dw_out, W_point_reshaped, b=b_point, stride=1, pad=0)
+    return y
+
+
+def depthwise_conv2d(x, W, b=None, stride=1, pad=0, dilation=1):
+    return DepthwiseConv2d(stride, pad, dilation)(x, W, b)
+
+
+def pointwise_conv2d(x, W, b=None, stride=1, pad=0):
+    return PointwiseConv2d(stride, pad)(x, W, b)
+
+
+class DilatedConv2d(Function):
+    def __init__(self, stride=1, pad=0, dilation=1):
+        super().__init__()
+        self.stride = pair(stride)
+        self.pad = pair(pad)
+        self.dilation = pair(dilation)
+
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
+        
+        KH, KW = W.shape[2:]
+        dilated_KH = KH + (KH - 1) * (self.dilation[0] - 1)
+        dilated_KW = KW + (KW - 1) * (self.dilation[1] - 1)
+        
+        col = im2col_array(x, (dilated_KH, dilated_KW), self.stride, self.pad, to_matrix=False)
+        
+        col_dilated = np.zeros((col.shape[0], col.shape[1], KH, KW, col.shape[4], col.shape[5]), dtype=col.dtype)
+        col_dilated[:, :, :, :, :, :] = col[:, :, ::self.dilation[0], ::self.dilation[1], :, :]
+        
+        y = np.tensordot(col_dilated, W, ((1, 2, 3), (1, 2, 3)))
+        if b is not None:
+            y += b
+        y = np.rollaxis(y, 3, 1)
+        return y
+
+    def backward(self, gys):
+        x, W, b = self.inputs
+        gx = dilated_conv2d(gys, W, b=None, stride=self.stride, pad=self.pad, 
+                           outsize=(x.shape[2], x.shape[3]))
+        gW = Conv2DGradW(self)(x, gys)
+        gb = None
+        if b.data is not None:
+            gb = gys.sum(axis=(0, 2, 3))
+        return gx, gW, gb
+
+
+def dilated_conv2d(x, W, b=None, stride=1, pad=0, dilation=1):
+    return DilatedConv2d(stride, pad, dilation)(x, W, b)
+
+
+class TransposedConv2d(Function):
+    def __init__(self, stride=1, pad=0, outsize=None, dilation=1):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
         self.outsize = outsize
+        self.dilation = pair(dilation)
+
+    def forward(self, *xs):
+        x = xs[0]
+        W = xs[1]
+        b = xs[2]
+        Weight = W
+        
+        SH, SW = self.stride
+        PH, PW = self.pad
+        DH, DW = self.dilation
+        
+        C, OC, KH, KW = Weight.shape
+        N, C, H, W = x.shape
+        
+        dilated_KH = KH + (KH - 1) * (DH - 1)
+        dilated_KW = KW + (KW - 1) * (DW - 1)
+        
+        if self.outsize is None:
+            out_h = get_deconv_outsize(H, dilated_KH, SH, PH)
+            out_w = get_deconv_outsize(W, dilated_KW, SW, PW)
+        else:
+            out_h, out_w = pair(self.outsize)
+        img_shape = (N, OC, out_h, out_w)
+        
+        W_dilated = np.zeros((C, OC, dilated_KH, dilated_KW), dtype=Weight.dtype)
+        W_dilated[:, :, ::DH, ::DW] = Weight
+        
+        gcol = np.tensordot(W_dilated, x, (0, 1))
+        gcol = np.rollaxis(gcol, 3)
+        y = col2im_array(gcol, img_shape, (dilated_KH, dilated_KW), self.stride, self.pad,
+                         to_matrix=False)
+        
+        if b is not None:
+            y += b.reshape((1, b.size, 1, 1))
+        return y
+
+    def backward(self, gys):
+        x, W, b = self.inputs
+        DH, DW = self.dilation
+        
+        dilated_KH = W.shape[2] + (W.shape[2] - 1) * (DH - 1)
+        dilated_KW = W.shape[3] + (W.shape[3] - 1) * (DW - 1)
+        
+        gx = conv2d(gys, W, b=None, stride=self.stride, pad=self.pad)
+        gW = Conv2DGradW(self)(gys, x)
+        gb = None
+        if b.data is not None:
+            gb = gys.sum(axis=(0, 2, 3))
+        return gx, gW, gb
+
+
+def transposed_conv2d(x, W, b=None, stride=1, pad=0, outsize=None, dilation=1):
+    return TransposedConv2d(stride, pad, outsize, dilation)(x, W, b)
+
+
+class Deconv2d(Function):
+    def __init__(self, stride=1, pad=0, outsize=None, dilation=1):
+        super().__init__()
+        self.stride = pair(stride)
+        self.pad = pair(pad)
+        self.outsize = outsize
+        self.dilation = pair(dilation)
 
     def forward(self, *xs):
         x = xs[0]
@@ -549,18 +758,27 @@ class Deconv2d(Function):
         Weight = W
         SH, SW = self.stride
         PH, PW = self.pad
+        DH, DW = self.dilation
+        
         C, OC, KH, KW = Weight.shape
         N, C, H, W = x.shape
+        
+        dilated_KH = KH + (KH - 1) * (DH - 1)
+        dilated_KW = KW + (KW - 1) * (DW - 1)
+        
         if self.outsize is None:
-            out_h = get_deconv_outsize(H, KH, SH, PH)
-            out_w = get_deconv_outsize(W, KW, SW, PW)
+            out_h = get_deconv_outsize(H, dilated_KH, SH, PH)
+            out_w = get_deconv_outsize(W, dilated_KW, SW, PW)
         else:
             out_h, out_w = pair(self.outsize)
         img_shape = (N, OC, out_h, out_w)
+        
+        W_dilated = np.zeros((C, OC, dilated_KH, dilated_KW), dtype=Weight.dtype)
+        W_dilated[:, :, ::DH, ::DW] = Weight
 
-        gcol = np.tensordot(Weight, x, (0, 1))
+        gcol = np.tensordot(W_dilated, x, (0, 1))
         gcol = np.rollaxis(gcol, 3)
-        y = col2im_array(gcol, img_shape, (KH, KW), self.stride, self.pad,
+        y = col2im_array(gcol, img_shape, (dilated_KH, dilated_KW), self.stride, self.pad,
                          to_matrix=False)
         # b, k, h, w
         if b is not None:
@@ -570,6 +788,10 @@ class Deconv2d(Function):
 
     def backward(self, gys):
         x, W, b = self.inputs
+        DH, DW = self.dilation
+        
+        dilated_KH = W.shape[2] + (W.shape[2] - 1) * (DH - 1)
+        dilated_KW = W.shape[3] + (W.shape[3] - 1) * (DW - 1)
 
         # ==== gx ====
         gx = conv2d(gys, W, b=None, stride=self.stride, pad=self.pad)
@@ -582,8 +804,8 @@ class Deconv2d(Function):
         return gx, gW, gb
 
 
-def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None):
-    return Deconv2d(stride, pad, outsize)(x, W, b)
+def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None, dilation=1):
+    return Deconv2d(stride, pad, outsize, dilation)(x, W, b)
 
 
 class Conv2DGradW(Function):
