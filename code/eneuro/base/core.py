@@ -56,6 +56,10 @@ class Tensor(StateDict):
     def dtype(self):
         return self.data.dtype
 
+    @property
+    def stride(self):
+        return self.data.strides
+
     def __len__(self):
         return len(self.data)
 
