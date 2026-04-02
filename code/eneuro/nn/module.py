@@ -33,11 +33,8 @@ class Layer:
 
     def forward(self, inputs):
         raise NotImplementedError()
+    
     #参数生成器，递归获取所有参数
-
-    def forward(self, inputs):
-        raise NotImplementedError()
-
     def params(self):
         for name in self._params:
             obj = self.__dict__[name]
@@ -179,7 +176,55 @@ class Conv2d(Layer):
 #         y = F.deconv2d(x, self.W, self.b, self.stride, self.pad)
 #         return y
 
+# module.py 中添加
 
+class BatchNorm2d(Layer):
+    def __init__(self, num_features, momentum=0.9, eps=1e-5):
+        super().__init__()
+        self.num_features = num_features
+        self.momentum = momentum
+        self.eps = eps
+
+        # 可训练参数 γ 和 β
+        self.gamma = Parameter(np.ones(num_features, dtype=np.float32), name='gamma')
+        self.beta  = Parameter(np.zeros(num_features, dtype=np.float32), name='beta')
+        # 不可训练的运行统计量（仍用 Tensor 存储，但 requires_grad=False）
+        self.running_mean = Tensor(np.zeros(num_features, dtype=np.float32), requires_grad=False, name='running_mean')
+        self.running_var  = Tensor(np.ones(num_features, dtype=np.float32), requires_grad=False, name='running_var')
+
+    def forward(self, inputs):
+        x = (inputs, self.gamma, self.beta)
+        y = batch_norm2d(x, self.running_mean, self.running_var, self.momentum, self.eps)
+        return y
+    
+class FusedConvReLU(Conv2d):
+    def forward(self, inputs):
+        if self.W.data is None:
+            self.in_channels = inputs.shape[1]          
+            self._init_W()
+
+        y = fused_conv_relu(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
+        return y
+
+class FusedConvBNReLU(Layer):
+    def __init__(self, out_channels, kernel_size, stride=1, pad=0,
+                 momentum=0.9, eps=1e-5, in_channels=None, visualize=False):
+        super().__init__()
+        self.conv = Conv2d(out_channels, kernel_size, stride, pad, 
+                           nobias=True, in_channels=in_channels, visualize=visualize)
+        self.bn = BatchNorm2d(out_channels, momentum, eps)
+        self.visualize = visualize
+
+    def forward(self, inputs):
+        # 手动调用融合函数
+        return fused_conv_bn_relu(
+            inputs, self.conv.W, self.conv.b, 
+            self.bn.gamma, self.bn.beta,
+            self.bn.running_mean, self.bn.running_var,
+            stride=self.conv.stride, pad=self.conv.pad,
+            momentum=self.bn.momentum, eps=self.bn.eps,
+            visualize=self.visualize
+        )
 
 #由于池化层，relu函数等不需要参数，这些可以直接用function中的函数即可
 

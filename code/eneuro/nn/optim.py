@@ -69,8 +69,8 @@ class Optimizer(StateDict):
         self._state = new_state
 
     def _apply_regularization(self, param: Parameter, grad_data: np.ndarray) -> np.ndarray:
-        if param.name == 'b':
-            return grad_data  # 偏置项不进行正则化
+        if param.name != 'W':
+            return grad_data  # 只对权重进行正则化
         
         #print(param.name)
 
