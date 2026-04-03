@@ -1,7 +1,7 @@
 import os
 import weakref
 import numpy as np
-from ..base.functions import Function as F
+from ..base import functions as F
 from ..base import *
 from ..base.parameter import Parameter
 from ..base.functions import pair
@@ -360,16 +360,17 @@ class CNNWithPooling(Module):
         layers = [
             Conv2d(32, 3, pad=1),  # 卷积层
             relu,                   # 激活函数
-            pooling(2, 2),        # 池化层
+            F.Pooling(2, 2),        # 池化层
             
             Conv2d(64, 3, pad=1),
             relu,
-            pooling(2, 2),
+            F.Pooling(2, 2),
        
         ]
         
         # 全连接层部分
         fc_layers = [
+            flatten,
             Linear(128),
             relu,
             Linear(64),

@@ -3,7 +3,7 @@ from .core import Tensor
 from .core import as_Tensor, as_array
 from .core import Function
 import numpy as np
-from ..base import Config
+from .core import Config
 
 '''
 other functions
