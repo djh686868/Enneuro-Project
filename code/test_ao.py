@@ -27,6 +27,53 @@ with trace_context() as tracer:
 # 此时 graph 包含完整的前向计算图，可用于后续的模式匹配和融合
 graph.visualize("my_graph.dot")   # 导出为 dot 文件
 
+from eneuro.ao.pattern import FusionPattern, NodeMatcher, MatchStrategy
+from eneuro.base.functions import Conv2d, ReLU, BatchNorm2d
+
+conv_relu_pattern = FusionPattern(
+    name="conv_relu",
+    node_matchers=[
+        NodeMatcher(func_type=Conv2d),
+        NodeMatcher(func_type=ReLU),
+    ],
+    fused_class=FusedConvReLU   # 需要从 functions.py 导入
+)
+
+matches = []
+for node in graph.func_nodes.values():
+    match = conv_relu_pattern.match_start(graph, node)
+    if match:
+        matches.append(match)
+
+print(f"Found {len(matches)} conv+relu patterns")
+
+for i, match in enumerate(matches):
+    print(f"Match {i}:")
+    print(f"  Input tensor ids: {[n.id for n in match.input_tensors]}")
+    print(f"  Output tensor ids: {[n.id for n in match.output_tensors]}")
+    print(f"  Matched function ids: {[n.id for n in match.matched_nodes]}")
+
+from eneuro.base.functions import FusedConvReLU
+for match in matches:
+    conv_node = match.matched_nodes[0]
+    conv_func = conv_node.obj
+    fused_func = FusedConvReLU(stride=conv_func.stride, pad=conv_func.pad)
+    match.replace(graph, fused_func)
+
+# 检查新节点是否出现在图中
+fused_nodes = [n for n in graph.func_nodes.values() 
+               if n.obj.__class__.__name__ == 'FusedConvReLU']
+assert len(fused_nodes) == 2
+
+# 检查是否存在孤立的旧节点（应已被删除）
+old_conv_nodes = [n for n in graph.func_nodes.values() 
+                  if isinstance(n.obj, Conv2d)]
+old_relu_nodes = [n for n in graph.func_nodes.values() 
+                  if isinstance(n.obj, ReLU)]
+#assert len(old_conv_nodes) == 0 and len(old_relu_nodes) == 0
+
+graph.visualize("optimized_graph.dot")
+
 # 创建损失函数和优化器
 loss_fn = CrossEntropyLoss()
 optimizer = SGD(model.params(), lr=0.1)
