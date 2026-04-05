@@ -189,8 +189,10 @@ class BatchNorm2d(Layer):
         self.gamma = Parameter(np.ones(out_channels, dtype=np.float32), name='gamma')
         self.beta  = Parameter(np.zeros(out_channels, dtype=np.float32), name='beta')
         # 不可训练的运行统计量（仍用 Tensor 存储，但 requires_grad=False）
-        self.running_mean = Tensor(np.zeros(out_channels, dtype=np.float32), requires_grad=False, name='running_mean')
-        self.running_var  = Tensor(np.ones(out_channels, dtype=np.float32), requires_grad=False, name='running_var')
+        self.running_mean = Parameter(np.zeros(out_channels, dtype=np.float32), name='running_mean')
+        self.running_mean.requires_grad=False
+        self.running_var  = Parameter(np.ones(out_channels, dtype=np.float32), name='running_var')
+        self.running_var.requires_grad=False
 
     def forward(self, inputs):
         x = (inputs, self.gamma, self.beta)

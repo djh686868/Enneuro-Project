@@ -226,10 +226,14 @@ class MatchResult:
             momentum = bn_node.params.get('momentum', 0.9)
             eps = bn_node.params.get('eps', 1e-5)
             
-            from ..base import Tensor
+            from ..base import Tensor,Parameter
             import numpy as np
-            running_mean = bn_node.params.get('running_mean', Tensor(np.zeros(bn_node.params.get('outsize',3), dtype=np.float32), requires_grad=False, name='running_mean'))
-            running_var = bn_node.params.get('running_var', Tensor(np.ones(bn_node.params.get('outsize',3), dtype=np.float32), requires_grad=False, name='running_mean'))
+            running_mean = bn_node.params.get('running_mean', 
+                                              Parameter(np.zeros(bn_node.params.get('outsize',3), dtype=np.float32), name='running_mean'))
+            running_mean.requires_grad=False
+            running_var = bn_node.params.get('running_var', 
+                                             Parameter(np.ones(bn_node.params.get('outsize',3), dtype=np.float32), name='running_mean'))
+            running_var.requires_grad=False
             
             from ..base.functions import FusedConvBNReLU
             func = FusedConvBNReLU(stride=stride, pad=pad, running_mean=running_mean, running_var=running_var, momentum=momentum, eps=eps)

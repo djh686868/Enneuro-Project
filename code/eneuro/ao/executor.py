@@ -20,8 +20,6 @@ class GraphExecutor:
             if not self.graph.input_edges[node.id]:
                 if isinstance(node.obj, Parameter):
                     self.param_nodes.append(node)
-                elif node.obj.name in ['running_mean','running_var']: # 不可训练参数
-                    self.param_nodes.append(node)
                 else:
                     self.data_input_nodes.append(node)
 

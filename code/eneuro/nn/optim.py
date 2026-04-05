@@ -20,6 +20,9 @@ class Optimizer(StateDict):
 
     def __init__(self, params: list[Parameter], lr: float = 0.01,
                  l2_lambda: float = 0.0, l1_lambda: float = 0.0):
+        # 排除不可训练参数
+        params = [param for param in params if param.requires_grad == True]
+        
         self.params = list(params)
         self._state.update(
             lr=lr, 
