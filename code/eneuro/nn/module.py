@@ -179,18 +179,18 @@ class Conv2d(Layer):
 # module.py 中添加
 
 class BatchNorm2d(Layer):
-    def __init__(self, num_features, momentum=0.9, eps=1e-5):
+    def __init__(self, out_channels, momentum=0.9, eps=1e-5):
         super().__init__()
-        self.num_features = num_features
+        self.out_channels = out_channels
         self.momentum = momentum
         self.eps = eps
 
         # 可训练参数 γ 和 β
-        self.gamma = Parameter(np.ones(num_features, dtype=np.float32), name='gamma')
-        self.beta  = Parameter(np.zeros(num_features, dtype=np.float32), name='beta')
+        self.gamma = Parameter(np.ones(out_channels, dtype=np.float32), name='gamma')
+        self.beta  = Parameter(np.zeros(out_channels, dtype=np.float32), name='beta')
         # 不可训练的运行统计量（仍用 Tensor 存储，但 requires_grad=False）
-        self.running_mean = Tensor(np.zeros(num_features, dtype=np.float32), requires_grad=False, name='running_mean')
-        self.running_var  = Tensor(np.ones(num_features, dtype=np.float32), requires_grad=False, name='running_var')
+        self.running_mean = Tensor(np.zeros(out_channels, dtype=np.float32), requires_grad=False, name='running_mean')
+        self.running_var  = Tensor(np.ones(out_channels, dtype=np.float32), requires_grad=False, name='running_var')
 
     def forward(self, inputs):
         x = (inputs, self.gamma, self.beta)
@@ -358,13 +358,13 @@ class CNNWithPooling(Module):
         
         # 卷积层部分
         layers = [
-            Conv2d(32, 3, pad=1),  # 卷积层
+            Conv2d(in_channels=in_channels,out_channels=32, kernel_size=3, pad=1),  # 卷积层
             relu,                   # 激活函数
-            F.Pooling(2, 2),        # 池化层
+            F.Pooling(kernel_size=2,stride=2),        # 池化层
             
-            Conv2d(64, 3, pad=1),
+            Conv2d(out_channels=64, kernel_size=3, pad=1),
             relu,
-            F.Pooling(2, 2),
+            F.Pooling(kernel_size=2,stride=2),
        
         ]
         

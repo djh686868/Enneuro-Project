@@ -829,7 +829,7 @@ class BatchNorm2d(Function):
 
     def backward(self, gys):
         x = self.x
-        gamma = self.gamma.data.reshape(1, -1, 1, 1)  # (1, C, 1, 1)
+        gamma = self.gamma.reshape(1, -1, 1, 1)  # (1, C, 1, 1)
         mean = self.mean
         var = self.var
         eps = self.eps
@@ -854,10 +854,10 @@ class BatchNorm2d(Function):
         gx = gx_hat * std_inv + gvar * (2.0 / M) * (x - mean) + gmean / M
 
         # 返回 gx, ggamma, gbeta (顺序与 forward 输入一致)
-        return gx, ggamma.reshape(1, C, 1, 1), gbeta.reshape(1, C, 1, 1)
+        return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)
 
 def batch_norm2d(x, running_mean, running_var, momentum=0.9, eps=1e-5):
-    return BatchNorm2d(running_mean, running_var, momentum, eps)(x)
+    return BatchNorm2d(running_mean, running_var, momentum, eps)(*x)
 
 
 class FusedConvReLU(Function):
@@ -877,17 +877,17 @@ class FusedConvReLU(Function):
         KH, KW = W.shape[2:]
 
         # 1. im2col + 卷积
-        col = im2col_array(x.data, (KH, KW), self.stride, self.pad, to_matrix=False)
-        conv_out = np.tensordot(col, W.data, ((1,2,3), (1,2,3)))   # (N, OH, OW, OC)
-        conv_out = np.rollaxis(conv_out, 3, 1)                     # (N, OC, OH, OW)
+        col = im2col_array(x, (KH, KW), self.stride, self.pad, to_matrix=False)
+        conv_out = np.tensordot(col, W, ((1, 2, 3), (1, 2, 3)))
         if b is not None:
-            conv_out += b.data.reshape(1, -1, 1, 1)
+            conv_out += b
+        conv_out = np.rollaxis(conv_out, 3, 1)
 
         # 2. 融合 ReLU：计算掩码并原地修改 conv_out
         self.mask = conv_out > 0
         conv_out[conv_out < 0] = 0          # 原地 ReLU，conv_out 变为最终输出
 
-        return Tensor(conv_out)
+        return conv_out
 
     def backward(self, gys):
         # gy: 输出梯度 Tensor (N, OC, OH, OW)
@@ -913,7 +913,7 @@ class FusedConvReLU(Function):
         gx = col2im_array(g_col, x.shape, (KH, KW), self.stride, self.pad, to_matrix=False)
 
         # 返回梯度（与 forward 输入顺序一致）
-        return Tensor(gx), Tensor(gW), (Tensor(gb) if gb is not None else None)
+        return as_Tensor(gx), as_Tensor(gW), (as_Tensor(gb) if gb is not None else None)
 
 def fused_conv_relu(x, W, b=None, stride=1, pad=0,visualize=False):
     return FusedConvReLU(stride, pad, visualize)(x, W, b)
@@ -924,27 +924,33 @@ class FusedConvBNReLU(Function):
     前向：卷积 → 批量归一化 → ReLU
     反向：ReLU 梯度 → BN 梯度 → 卷积梯度
     """
-    def __init__(self, stride=(1,1), pad=(0,0), momentum=0.9, eps=1e-5, visualize=False):
+    def __init__(self, stride=(1,1), pad=(0,0),running_mean=None, running_var=None, momentum=0.9, eps=1e-5, visualize=False):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
+        self.running_mean = running_mean
+        self.running_var = running_var
         self.momentum = momentum
         self.eps = eps
         self.visualize = visualize
 
     def forward(self, *xs):
-        # 输入：x, W, b, gamma, beta, running_mean, running_var
-        x, W, b, gamma, beta, running_mean, running_var = xs
+        # 输入：x, W, b, gamma, beta
+        x, W, b, gamma, beta = xs
         OC, _, KH, KW = W.shape
+
+        # 用于融合算子时的初始化
+        if not hasattr(self,'outsize'):
+            self.outsize = OC
 
         # ---------- 1. 卷积 ----------
         # im2col
         col = im2col_array(x.data, (KH, KW), self.stride, self.pad, to_matrix=False)
         # 卷积输出 (N, OH, OW, OC)
-        conv_out = np.tensordot(col, W.data, ((1,2,3), (1,2,3)))
-        conv_out = np.rollaxis(conv_out, 3, 1)  # (N, OC, OH, OW)
+        conv_out = np.tensordot(col, W, ((1, 2, 3), (1, 2, 3)))
         if b is not None:
-            conv_out += b.data.reshape(1, -1, 1, 1)
+            conv_out += b
+        conv_out = np.rollaxis(conv_out, 3, 1)
 
         # 保存卷积输出和输入，用于反向
         self.x = x
@@ -961,22 +967,33 @@ class FusedConvBNReLU(Function):
         if Config.train:
             m = mean.reshape(OC)
             v = var.reshape(OC)
-            running_mean.data = self.momentum * running_mean.data + (1 - self.momentum) * m
-            running_var.data  = self.momentum * running_var.data  + (1 - self.momentum) * v
+            
+            if self.running_mean is None:
+                self.running_mean = Tensor(np.zeros(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+            if self.running_var is None:
+                self.running_var = Tensor(np.ones(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+
+            self.running_mean.data = self.momentum * self.running_mean.data + (1 - self.momentum) * m
+            self.running_var.data  = self.momentum * self.running_var.data  + (1 - self.momentum) * v
             self.mean = mean
             self.var = var
         else:
             # 测试模式：使用 running 统计量
-            mean = running_mean.data.reshape(1, OC, 1, 1)
-            var = running_var.data.reshape(1, OC, 1, 1)
+            if self.running_mean is None:
+                self.running_mean = Tensor(np.zeros(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+            if self.running_var is None:
+                self.running_var = Tensor(np.ones(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+
+            mean = self.running_mean.data.reshape(1, OC, 1, 1)
+            var = self.running_var.data.reshape(1, OC, 1, 1)
             self.mean = mean
             self.var = var
 
         # 归一化、缩放、平移
         std_inv = 1.0 / np.sqrt(var + self.eps)
         x_hat = (conv_out - mean) * std_inv
-        gamma_reshaped = gamma.data.reshape(1, OC, 1, 1)
-        beta_reshaped  = beta.data.reshape(1, OC, 1, 1)
+        gamma_reshaped = gamma.reshape(1, OC, 1, 1)
+        beta_reshaped  = beta.reshape(1, OC, 1, 1)
         bn_out = gamma_reshaped * x_hat + beta_reshaped
 
         # 保存 BN 中间变量
@@ -989,7 +1006,7 @@ class FusedConvBNReLU(Function):
         self.mask = bn_out > 0
         out = bn_out * self.mask
 
-        return Tensor(out)
+        return out
 
     def backward(self, gys):
         # gys: 输出梯度 (N, OC, OH, OW)
@@ -998,7 +1015,7 @@ class FusedConvBNReLU(Function):
 
         # ---------- 2. BN 梯度 ----------
         x = self.conv_out               # 卷积输出，BN 的输入
-        gamma = self.gamma.data.reshape(1, -1, 1, 1)
+        gamma = self.gamma.reshape(1, -1, 1, 1)
         mean = self.mean
         var = self.var
         eps = self.eps
@@ -1037,11 +1054,11 @@ class FusedConvBNReLU(Function):
 
         # 返回梯度，顺序与 forward 输入一致
         # 返回：gx, gW, gb, ggamma, gbeta, None, None（后两个是 running_mean, running_var，不需要梯度）
-        return (Tensor(gx), Tensor(gW), 
-                Tensor(gb) if gb is not None else None,
-                Tensor(ggamma.reshape(1, -1, 1, 1)), 
-                Tensor(gbeta.reshape(1, -1, 1, 1)),
+        return (as_Tensor(gx), as_Tensor(gW), 
+                as_Tensor(gb) if gb is not None else None,
+                as_Tensor(ggamma), 
+                as_Tensor(gbeta),
                 None, None)
     
 def fused_conv_bn_relu(x, W, b, gamma, beta, running_mean, running_var, stride=1, pad=0, momentum=0.9, eps=1e-5, visualize=False):
-    return FusedConvBNReLU(stride, pad, momentum, eps, visualize)(x, W, b, gamma, beta, running_mean, running_var)
+    return FusedConvBNReLU(stride, pad, running_mean, running_var, momentum, eps, visualize)(x, W, b, gamma, beta)

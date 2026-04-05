@@ -133,6 +133,7 @@ class Tensor(StateDict):
                 for x, gx in zip(f.inputs, gxs):
                     # if not isinstance(gx, Tensor):
                     #     gx = Tensor(gx)
+                    assert isinstance(gx,Tensor), "请检查反向传播中的数据是否是Tensor类型！"
                     if x.grad is None:
                         x.grad = gx
                     else:
@@ -207,6 +208,8 @@ def from_dict(d: dict) -> None:  # 序列化读取数据
 
 def as_array(x):
     """将输入转换为numpy数组"""
+    if isinstance(x, Tensor):
+        return as_array(x.data)
     if np.isscalar(x):
         return np.array(x)
     return x

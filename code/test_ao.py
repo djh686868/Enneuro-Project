@@ -1,101 +1,124 @@
 import sys
 import os
 import numpy as np
+import time
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from eneuro.base import Tensor
-from eneuro.nn.module import CNNWithPooling
+from eneuro.base import functions as F
+from eneuro.nn.module import CNNWithPooling,Sequential,Conv2d,BatchNorm2d,Linear
 from eneuro.nn.loss import CrossEntropyLoss
 from eneuro.nn.optim import SGD
-from eneuro.base.functions import *
-from eneuro.ao.tracer import trace_context
+from eneuro.ao import GraphOptimizer,GraphExecutor,trace_context
 
 # 创建简单的测试数据
-X = np.random.randn(2, 3, 32, 32).astype(np.float32)  # 2张32x32的3通道图像
+X = np.random.randn(2, 3, 64, 64).astype(np.float32)  # 2张3通道图像
 y = np.array([0, 5], dtype=np.int32)                   # 2个样本的标签，范围[0, 9]
 
-# 创建模型
-model = CNNWithPooling()
+num_fuse = 20
+sequential_content = []
+for i in range(num_fuse):
+    sequential_content.append(Conv2d(3,3))
+    sequential_content.append(BatchNorm2d(3))
+    sequential_content.append(F.relu)
+sequential_content.append(F.flatten)
+sequential_content.append(Linear(10))
 
-# 开始记录
-with trace_context() as tracer:
-    output = model(Tensor(X))
-    graph = tracer.get_graph()
+def test_normal(epoch_num = 10):
+    # 创建模型
+    model = Sequential(*sequential_content)
 
-# 此时 graph 包含完整的前向计算图，可用于后续的模式匹配和融合
-graph.visualize("my_graph.dot")   # 导出为 dot 文件
+    # 创建损失函数和优化器
+    loss_fn = CrossEntropyLoss()
+    optimizer = SGD(model.params(), lr=0.1)
 
-from eneuro.ao.pattern import FusionPattern, NodeMatcher, MatchStrategy
-from eneuro.base.functions import Conv2d, ReLU, BatchNorm2d
+    tic = time.time()
+    for epoch in range(epoch_num):
+        print(f"epoch {epoch}")
+        y_hat = model(Tensor(X))
 
-conv_relu_pattern = FusionPattern(
-    name="conv_relu",
-    node_matchers=[
-        NodeMatcher(func_type=Conv2d),
-        NodeMatcher(func_type=ReLU),
-    ],
-    fused_class=FusedConvReLU   # 需要从 functions.py 导入
-)
+        loss = loss_fn(y_hat, Tensor(y))
+        loss.backward()
 
-matches = []
-for node in graph.func_nodes.values():
-    match = conv_relu_pattern.match_start(graph, node)
-    if match:
-        matches.append(match)
+        optimizer.step()
+    toc = time.time()
+    duration = toc - tic
+    
+    print(f"normal training complete in {duration:.4f}s")
+    return duration
 
-print(f"Found {len(matches)} conv+relu patterns")
+def test_executor(epoch_num = 10):
+    # 创建模型
+    model = Sequential(*sequential_content)
 
-for i, match in enumerate(matches):
-    print(f"Match {i}:")
-    print(f"  Input tensor ids: {[n.id for n in match.input_tensors]}")
-    print(f"  Output tensor ids: {[n.id for n in match.output_tensors]}")
-    print(f"  Matched function ids: {[n.id for n in match.matched_nodes]}")
+    # 执行一次前向，记录计算图
+    sample_input = Tensor(X)
+    with trace_context() as tracer:
+        _ = model(sample_input)
+        graph = tracer.get_graph()
+    #graph.visualize('my_graph.dot')
+    executor = GraphExecutor(graph)
 
-from eneuro.base.functions import FusedConvReLU
-for match in matches:
-    conv_node = match.matched_nodes[0]
-    conv_func = conv_node.obj
-    fused_func = FusedConvReLU(stride=conv_func.stride, pad=conv_func.pad)
-    match.replace(graph, fused_func)
+    # 创建损失函数和优化器
+    loss_fn = CrossEntropyLoss()
+    optimizer = SGD(model.params(), lr=0.1)
+    
+    tic = time.time()
+    for epoch in range(epoch_num):
+        print(f"epoch {epoch}")
+        y_hat = executor.forward(Tensor(X))
 
-# 检查新节点是否出现在图中
-fused_nodes = [n for n in graph.func_nodes.values() 
-               if n.obj.__class__.__name__ == 'FusedConvReLU']
-assert len(fused_nodes) == 2
+        loss = loss_fn(y_hat, Tensor(y))
+        loss.backward()
 
-# 检查是否存在孤立的旧节点（应已被删除）
-old_conv_nodes = [n for n in graph.func_nodes.values() 
-                  if isinstance(n.obj, Conv2d)]
-old_relu_nodes = [n for n in graph.func_nodes.values() 
-                  if isinstance(n.obj, ReLU)]
-#assert len(old_conv_nodes) == 0 and len(old_relu_nodes) == 0
+        optimizer.step()
+    toc = time.time()
+    duration = toc - tic
+    print(f"executor training complete in {duration:.4f}s")
+    return duration
 
-graph.visualize("optimized_graph.dot")
+def test_ao(epoch_num = 10):
+    # 创建模型
+    model = Sequential(*sequential_content)
 
-# 创建损失函数和优化器
-loss_fn = CrossEntropyLoss()
-optimizer = SGD(model.params(), lr=0.1)
+    # 执行一次前向，记录并优化计算图（得到优化后的 executor）
+    sample_input = Tensor(X)
+    op = GraphOptimizer(model, sample_input)
+    graph = op.optimize()
+    graph.visualize()
+    executor = op.optimize_to_executor()
 
-# 测试前向传播
-print("测试前向传播...")
-y_hat = model(Tensor(X))
-print(f"前向传播结果: {y_hat}")
+    # 创建损失函数和优化器
+    loss_fn = CrossEntropyLoss()
+    optimizer = SGD(model.params(), lr=0.1)
+    
+    tic = time.time()
+    for epoch in range(epoch_num):
+        print(f"epoch {epoch}")
+        y_hat = executor.forward(Tensor(X))
 
-# 测试损失计算
-print("\n测试损失计算...")
-loss = loss_fn(y_hat, Tensor(y))
-print(f"损失值: {loss}")
+        loss = loss_fn(y_hat, Tensor(y))
+        loss.backward()
 
-# 测试反向传播
-print("\n测试反向传播...")
-loss.backward()
-print("反向传播完成")
+        optimizer.step()
+    toc = time.time()
+    duration = toc - tic
+    print(f"ao training complete in {duration:.4f}s")
+    return duration
 
-# 测试参数更新
-print("\n测试参数更新...")
-optimizer.step()
-print("参数更新完成")
+if __name__ == "__main__":
+    num_epoch = 500
+    normal_time = test_normal(num_epoch)
+    executor_time = test_executor(num_epoch)
+    ao_time = test_ao(num_epoch)
 
-print("\n所有测试完成！")
+    sub = normal_time - ao_time
+    print(f"normal training complete in {normal_time:.4f}s")
+    print(f"executor training complete in {executor_time:.4f}s")
+    print(f"ao training complete in {ao_time:.4f}s")
+    print(f"融合算子节约了 {sub * 100 / normal_time:.2f}% 的时间")
+    print(f"本次测试中，平均每次forward每个conv_batchnorm_relu融合节约{sub / num_epoch / num_fuse}s")
+
+    print("\n所有测试完成！")

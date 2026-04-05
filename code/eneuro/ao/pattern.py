@@ -6,6 +6,7 @@ from enum import Enum, auto
 
 from .graph import Graph, Node, NodeType
 from ..base.core import Function
+from ..base import functions as F
 
 
 class MatchStrategy(Enum):
@@ -165,19 +166,84 @@ class MatchResult:
                         nodes.add(out_tensor)
         return list(nodes)
 
-    def replace(self, graph: Graph, fused_func: Function) -> Node:
+    def replace(self, graph: Graph) -> Node:
         """
         使用融合后的 Function 节点替换当前匹配的子图。
         返回新创建的 Function 节点。
         """
+        fused_func = self.create_fused_func(graph)
+        subgraph_nodes = self.get_subgraph_nodes(graph)
+        
         # 调用 Graph.replace_subgraph 方法
         fused_node = graph.replace_subgraph(
-            subgraph_nodes=self.get_subgraph_nodes(graph),  # 需要完整节点集合
+            subgraph_nodes=subgraph_nodes,  # 需要完整节点集合
             inputs=self.input_tensors,
             outputs=self.output_tensors,
             fused_func=fused_func
         )
         return fused_node
+    
+    def create_fused_func(self, graph: Graph) -> Function:
+        """根据匹配结果创建融合算子实例，提取必要参数，处理特殊连接"""
+        pattern_name = self.pattern.name
+        if pattern_name == "conv_relu":
+            conv_node = self.matched_nodes[0]
+            stride = conv_node.params.get('stride', (1, 1))
+            pad = conv_node.params.get('pad', (0, 0))
+            # 延迟导入避免循环依赖
+            from ..base.functions import FusedConvReLU
+            return FusedConvReLU(stride=stride, pad=pad)
+        elif pattern_name == "conv_bn_relu":
+            '''
+            原结构
+                x   W   b
+                \\  |   /
+                  Conv2d    gamma   beta
+                    \\        |      /
+                        BatchNorm2d
+                            |
+                          Tensor1
+                            |
+                          relu
+                            |
+                          Tensor2
+
+                融合后变为
+
+                x   W   b   gamma   beta
+                \\  \\  |     /      /
+                    FusedConvBNReLU
+                        |
+                    Tensor2
+
+                其中x, W, b, Tensor2的连接由graph.replace_subgraph自动处理
+                gamma, beta在本方法中删除原来的边并连接至Conv2d, 然后交由graph.replace_subgraph自动处理
+            '''
+            conv_node = self.matched_nodes[0]
+            bn_node = self.matched_nodes[1]
+            stride = conv_node.params.get('stride', (1, 1))
+            pad = conv_node.params.get('pad', (0, 0))
+            momentum = bn_node.params.get('momentum', 0.9)
+            eps = bn_node.params.get('eps', 1e-5)
+            
+            from ..base import Tensor
+            import numpy as np
+            running_mean = bn_node.params.get('running_mean', Tensor(np.zeros(bn_node.params.get('outsize',3), dtype=np.float32), requires_grad=False, name='running_mean'))
+            running_var = bn_node.params.get('running_var', Tensor(np.ones(bn_node.params.get('outsize',3), dtype=np.float32), requires_grad=False, name='running_mean'))
+            
+            from ..base.functions import FusedConvBNReLU
+            func = FusedConvBNReLU(stride=stride, pad=pad, running_mean=running_mean, running_var=running_var, momentum=momentum, eps=eps)
+
+            # 处理中间输入
+            gamma_node = graph.nodes[graph.input_edges[bn_node.id][1]]
+            beta_node = graph.nodes[graph.input_edges[bn_node.id][2]]
+            graph._remove_edges_to_node(bn_node, {gamma_node, beta_node})
+            self.input_tensors.append(gamma_node)
+            self.input_tensors.append(beta_node)
+            return func
+        else:
+            # 默认直接实例化（无参数）
+            return self.pattern.fused_class()
 
 
 # 预定义常用模式，供 FusionRegistry 使用
@@ -189,7 +255,7 @@ def create_conv_relu_pattern() -> FusionPattern:
             NodeMatcher(func_type=Conv2d),
             NodeMatcher(func_type=ReLU),
         ],
-        fused_class=None  # 外部设置，例如 FusedConvReLU
+        fused_class=F.FusedConvReLU  # 外部设置，例如 FusedConvReLU
     )
 
 
@@ -202,5 +268,57 @@ def create_conv_bn_relu_pattern() -> FusionPattern:
             NodeMatcher(func_type=BatchNorm2d),
             NodeMatcher(func_type=ReLU),
         ],
-        fused_class=None
+        fused_class=F.FusedConvBNReLU
     )
+
+# 融合算子注册表 
+class FusionRegistry:
+    _patterns: List[FusionPattern] = [
+        create_conv_bn_relu_pattern(),
+        create_conv_relu_pattern()
+    ]
+
+    @classmethod
+    def register(cls, pattern: FusionPattern, fused_class: Type[Function]):
+        pattern.fused_class = fused_class
+        cls._patterns.append(pattern)
+
+    @classmethod
+    def get_patterns(cls) -> List[FusionPattern]:
+        return cls._patterns
+    
+# 全局模式匹配器
+class PatternMatcher:
+    '''
+    在完整计算图上搜索所有匹配的位置，处理重叠匹配（例如按优先级或贪心策略），返回 MatchResult 列表。
+    '''
+    def __init__(self, graph: Graph, registry: FusionRegistry):
+        self.graph = graph
+        self.registry = registry
+
+    def find_all_matches(self) -> List[MatchResult]:
+        matches = []
+        # 按拓扑序遍历所有 Function 节点
+        for node in self.graph.topological_order():
+            if node.type != NodeType.FUNCTION: # 排除tensor
+                continue
+            for pattern in self.registry.get_patterns():
+                if pattern.fused_class is None: # 排除无可替换func的模式
+                    continue
+                result = pattern.match_start(self.graph, node)
+                if result:
+                    matches.append(result)
+        # 可选：处理重叠匹配（如保留最大子图、按优先级等）
+        return self._resolve_overlaps(matches)
+
+    def _resolve_overlaps(self, matches: List[MatchResult]) -> List[MatchResult]:
+        # 简单实现：按子图大小降序，贪心选取不重叠的匹配
+        matches.sort(key=lambda m: len(m.matched_nodes), reverse=True)
+        covered_nodes = set()
+        resolved = []
+        for m in matches:
+            nodes = set(m.matched_nodes)
+            if not nodes & covered_nodes: # if 该匹配的node未被选取
+                resolved.append(m)
+                covered_nodes.update(nodes)
+        return resolved
