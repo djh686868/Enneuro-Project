@@ -97,6 +97,10 @@ class Tensor(StateDict):
     
     def sum(self, axis=None, keepdims=False):
         return Tensor(np.sum(self.data, axis=axis, keepdims=keepdims))
+    
+    def mean(self, axis=None, keepdims=False):
+        from .functions import Mean
+        return Mean(axis, keepdims)(self)
 
     def backward(self, retain_grad=False, create_graph=False):
         if self.grad is None:
