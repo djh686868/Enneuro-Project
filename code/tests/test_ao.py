@@ -63,7 +63,7 @@ def test_executor(epoch_num = 10):
     with trace_context() as tracer:
         _ = model(sample_input)
         graph = tracer.get_graph()
-    #graph.visualize('my_graph.dot')
+    graph.visualize('origin_graph.dot')
     executor = GraphExecutor(graph)
 
     # 创建损失函数和优化器
@@ -91,8 +91,8 @@ def test_ao(epoch_num = 10):
     # 执行一次前向，记录并优化计算图（得到优化后的 executor）
     sample_input = Tensor(X)
     op = GraphOptimizer(model, sample_input)
-    #graph = op.optimize()
-    #graph.visualize()
+    graph = op.optimize()
+    graph.visualize('optimized_graph.dot')
     executor = op.optimize_to_executor()
 
     # 创建损失函数和优化器
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     executor_time = test_executor(num_epoch)
     ao_time = test_ao(num_epoch)
 
-    '''
+    #'''
     sub = normal_time - ao_time
     print(f"normal training complete in {normal_time:.4f}s")
     print(f"executor training complete in {executor_time:.4f}s")
