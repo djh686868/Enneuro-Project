@@ -954,6 +954,103 @@ class AveragePooling(Function):
 def average_pooling(x, kernel_size, stride=1, pad=0):
     return AveragePooling(kernel_size, stride, pad)(x)
 
+class GlobalAveragePooling(Function):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, *xs):
+        x = xs[0]
+        self.input_shape = x.shape
+        y = x.mean(axis=(2, 3), keepdims=True)
+        return y
+    
+    def backward(self, gy):
+        # 全局平均池化的反向传播是将梯度广播回原始输入形状
+        gx = broadcast_to(gy, self.input_shape)
+        return gx
+
+def global_average_pooling(x):
+    return GlobalAveragePooling()(x)
+
+class BatchNormFunction(Function):
+    def __init__(self, eps=1e-5, momentum=0.9, training=True, moving_mean=None, moving_var=None):
+        super().__init__()
+        self.eps = eps
+        self.momentum = momentum
+        self.training = training
+        self.moving_mean = moving_mean
+        self.moving_var = moving_var
+        self.mean = None
+        self.var = None
+        self.x_hat = None
+    
+    def forward(self, *xs):
+        x, gamma, beta = xs
+        
+        if self.training:
+            # 计算当前批次的均值和方差
+            if len(x.shape) == 2:
+                # 全连接层
+                self.mean = x.mean(axis=0, keepdims=True)
+                self.var = ((x - self.mean) ** 2).mean(axis=0, keepdims=True)
+            else:
+                # 卷积层
+                self.mean = x.mean(axis=(0, 2, 3), keepdims=True)
+                self.var = ((x - self.mean) ** 2).mean(axis=(0, 2, 3), keepdims=True)
+            
+            # 更新移动平均
+            if self.moving_mean is not None:
+                self.moving_mean[:] = self.momentum * self.moving_mean + (1 - self.momentum) * self.mean
+            if self.moving_var is not None:
+                self.moving_var[:] = self.momentum * self.moving_var + (1 - self.momentum) * self.var
+            
+            # 使用当前批次的均值和方差
+            mean = self.mean
+            var = self.var
+        else:
+            # 预测模式，使用移动平均
+            mean = self.moving_mean
+            var = self.moving_var
+        
+        # 标准化
+        self.x_hat = (x - mean) / (var + self.eps) ** 0.5
+        
+        # 缩放和移位
+        y = gamma * self.x_hat + beta
+        return y
+    
+    def backward(self, gy):
+        # 只处理y的梯度，忽略moving_mean和moving_var的梯度
+        # 因为它们不是可训练参数
+        x, gamma, beta = self.inputs
+        
+        if len(x.shape) == 4:
+            axes = (0, 2, 3)
+            m = x.shape[0] * x.shape[2] * x.shape[3]
+        else:
+            axes = (0,)
+            m = x.shape[0]
+
+        # 对gamma和beta的梯度
+        dbeta = gy.sum(axis=axes, keepdims=True)
+        dgamma = (gy * self.x_hat).sum(axis=axes, keepdims=True)
+
+        # 对x的梯度（标准 BN 公式）
+        inv_std = as_Tensor(1.0 / np.sqrt(self.var + self.eps))
+        x_hat = as_Tensor(self.x_hat)
+        sum_gy = gy.sum(axis=axes, keepdims=True)
+        sum_gy_xhat = (gy * x_hat).sum(axis=axes, keepdims=True)
+        dx = (gamma * inv_std / m) * (m * gy - sum_gy - x_hat * sum_gy_xhat)
+        
+        return dx, dgamma, dbeta
+
+def batch_norm(x, gamma, beta, moving_mean=None, moving_var=None, eps=1e-5, momentum=0.9, training=True):
+    # 调用BatchNormFunction，获取返回值
+    y = BatchNormFunction(eps, momentum, training, moving_mean, moving_var)(x, gamma, beta)
+    # 只返回y值，moving_mean和moving_var在函数内部直接更新
+    return y
+    
+
 
 class BatchNorm2d(Function):
     def __init__(self, running_mean, running_var, momentum=0.9, eps=1e-5):
