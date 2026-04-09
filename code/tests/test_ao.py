@@ -2,9 +2,10 @@ import sys
 import os
 import numpy as np
 import time
+from pathlib import Path
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加code目录到Python搜索路径，这样就能找到eneuro模块
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from eneuro.base import Tensor,Config
 from eneuro.base import functions as F

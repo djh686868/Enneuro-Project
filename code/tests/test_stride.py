@@ -2,8 +2,9 @@ import numpy as np
 import sys
 import os
 
-# 添加code目录到Python路径
-sys.path.append(os.path.abspath('./code'))
+# 添加code目录到Python搜索路径，这样就能找到eneuro模块
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from eneuro.base.core import Tensor
 
 # 测试基本的stride属性

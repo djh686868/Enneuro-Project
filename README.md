@@ -39,6 +39,25 @@ cd enneuro
 pip install -r requirements.txt
 ```
 
+## 运行测试
+
+在运行测试文件之前，需要确保Python能够找到eneuro模块。由于测试文件位于`code/tests`目录下，而eneuro模块位于`code/eneuro`目录下，因此需要在测试文件中添加以下代码来确保正确导入：
+
+```python
+import sys
+from pathlib import Path
+
+# 添加code目录到Python搜索路径，这样就能找到eneuro模块
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+```
+
+然后就可以运行测试文件了，例如：
+
+```bash
+# 在code目录下运行
+python tests/test.py
+```
+
 ## 快速开始
 
 ### 基本使用示例
