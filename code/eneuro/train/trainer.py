@@ -106,17 +106,33 @@ class Trainer:
             # Xb = Xb.to(device)
             # yb = yb.to(device)
             y_hat = self.model(Xb)
-            if yb.ndim > 1:
-                y_true = yb.argmax(axis=1)
-            else:
-                y_true = yb
 
-            loss = self.loss_fn(y_hat, y_true)
+            # 兼容单标签分类与多标签分类
+            if yb.ndim > 1:
+                y_true_cls = yb.argmax(axis=1)
+                if y_hat.ndim == yb.ndim and y_hat.shape == yb.shape:
+                    # 多标签任务（如 SigmoidWithLoss）
+                    y_target = yb
+                else:
+                    # 单标签分类 one-hot -> class index
+                    y_target = y_true_cls
+            else:
+                y_true_cls = yb
+                y_target = yb
+
+            loss = self.loss_fn(y_hat, y_target)
 
             if y_hat.ndim > 1:
-                y_pred = y_hat.argmax(axis=1)
+                if yb.ndim > 1 and y_hat.shape == yb.shape:
+                    # 多标签预测：阈值化后逐元素比较
+                    y_pred = (y_hat.data > 0.5).astype(np.int32)
+                    y_true = yb.data.astype(np.int32)
+                else:
+                    y_pred = y_hat.argmax(axis=1)
+                    y_true = y_true_cls
             else:
                 y_pred = y_hat
+                y_true = y_true_cls
 
             if training:
                 self.model.cleargrads()
@@ -188,17 +204,29 @@ class Evaluator:
 
             with Config.using_config('train', False):
                 y_hat = self.model(Xb)
-                
+
                 if yb.ndim > 1:
-                    y_true = yb.argmax(axis=1)
+                    y_true_cls = yb.argmax(axis=1)
+                    if y_hat.ndim == yb.ndim and y_hat.shape == yb.shape:
+                        y_target = yb
+                    else:
+                        y_target = y_true_cls
                 else:
-                    y_true = yb
-                loss = self.loss_fn(y_hat, y_true) 
-            
+                    y_true_cls = yb
+                    y_target = yb
+
+                loss = self.loss_fn(y_hat, y_target)
+
             if y_hat.ndim > 1:
-                y_pred = y_hat.data.argmax(axis=1)
+                if yb.ndim > 1 and y_hat.shape == yb.shape:
+                    y_pred = (y_hat.data > 0.5).astype(np.int32)
+                    y_true = yb.data.astype(np.int32)
+                else:
+                    y_pred = y_hat.data.argmax(axis=1)
+                    y_true = y_true_cls
             else:
                 y_pred = y_hat.data
+                y_true = y_true_cls
             
             # 收集预测结果和真实标签
             y_true_list.append(y_true)

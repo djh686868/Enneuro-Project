@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import time
 import sys
+from pathlib import Path
 
 # 导入EnNeuro框架的核心组件
 from eneuro.data.dataset import Dataset
@@ -104,7 +105,7 @@ def train_iris_classifier():
     
     # 1. 准备数据
     # 使用绝对路径确保文件能被正确找到
-    file_path = "testdata\\Iris.csv"
+    file_path = str(Path(__file__).resolve().parent / "testdata" / "Iris.csv")
     
     # 加载完整数据集
     full_dataset = IrisDataset(file_path)

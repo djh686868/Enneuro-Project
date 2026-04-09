@@ -1,10 +1,11 @@
 import os
 import weakref
 import numpy as np
-from ..base.functions import Function as F
+from ..base import functions as F
 from ..base import *
 from ..base.parameter import Parameter
 from ..base.functions import pair
+from ..base.functions import depthwise_conv2d, grouped_conv2d
 from ..utils.statedict import StateDict
 
 from ..global_config import VISUAL_CONFIG
@@ -33,11 +34,8 @@ class Layer:
 
     def forward(self, inputs):
         raise NotImplementedError()
+    
     #参数生成器，递归获取所有参数
-
-    def forward(self, inputs):
-        raise NotImplementedError()
-
     def params(self):
         for name in self._params:
             obj = self.__dict__[name]
@@ -50,7 +48,19 @@ class Layer:
     def cleargrads(self):
         for param in self.params():
             param.cleargrad()
-   
+
+    def get_params_list(self) -> list['Parameter']:
+        """
+        收集并返回当前层及其所有子层中的所有可训练参数。
+
+        Returns:
+            list[Parameter]: 一个包含所有 Parameter 对象的列表。
+        """
+        params_dict = {}
+        self._flatten_params(params_dict)
+        # 从字典的值中创建一个列表并返回
+        return list(params_dict.values())
+
     #为保存参数来记录参数字典
     def _flatten_params(self, params_dict, parent_key=""):
         for name in self._params:
@@ -97,7 +107,109 @@ class Linear(Layer):
     
 class Conv2d(Layer):
     def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None,visualize=False):
+                 pad=0, nobias=False, dtype=np.float32, in_channels=None, visualize=False, 
+                 groups=1, depthwise=False, dilation=1):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.pad = pad
+        self.dtype = dtype
+        self.visualize = visualize
+        self.groups = groups
+        self.depthwise = depthwise
+        self.dilation = dilation
+
+        # 深度可分离卷积的特殊处理
+        if self.depthwise:
+            if self.in_channels is None:
+                raise ValueError("depthwise convolution requires in_channels to be specified")
+            self.groups = self.in_channels
+            assert out_channels % in_channels == 0, "out_channels must be divisible by in_channels for depthwise convolution"
+            self.channel_multiplier = out_channels // in_channels
+        else:
+            assert out_channels % groups == 0, "out_channels must be divisible by groups"
+            if in_channels is not None:
+                assert in_channels % groups == 0, "in_channels must be divisible by groups"
+
+        self.W = Parameter(None, name='W')
+        if in_channels is not None:
+            self._init_W()
+
+        if nobias:
+            self.b = None
+        else:
+            self.b = Parameter(np.zeros(out_channels, dtype=dtype), name='b')
+
+    def _init_W(self, xp=np):
+        C, OC = self.in_channels, self.out_channels
+        KH, KW = pair(self.kernel_size)
+        
+        if self.depthwise:
+            # 深度可分离卷积的权重形状: (OC, 1, KH, KW)
+            scale = np.sqrt(1 / (C * KH * KW))
+            W_data = xp.random.randn(OC, 1, KH, KW).astype(self.dtype) * scale
+        else:
+            # 普通卷积或分组卷积的权重形状: (OC, C//groups, KH, KW)
+            scale = np.sqrt(1 / ((C // self.groups) * KH * KW))
+            W_data = xp.random.randn(OC, C // self.groups, KH, KW).astype(self.dtype) * scale
+        
+        self.W.data = W_data
+
+    def forward(self, inputs):
+        if self.W.data is None:
+            self.in_channels = inputs.shape[1]          
+            self._init_W()
+
+        if self.depthwise:
+            # 深度可分离卷积: 先进行逐通道卷积，再进行1x1卷积
+            # 逐通道卷积
+            y = depthwise_conv2d(
+                inputs, self.W, None,
+                stride=self.stride,
+                pad=self.pad,
+                dilation=self.dilation,
+                visualize=self.visualize
+            )
+            # 1x1卷积
+            if self.channel_multiplier > 1:
+                # 创建1x1卷积核
+                C = self.in_channels
+                OC = self.out_channels
+                w_shape = (OC, C, 1, 1)
+                scale = np.sqrt(1 / C)
+                w_data = np.random.randn(*w_shape).astype(self.dtype) * scale
+                w = Parameter(w_data, name='W_1x1')
+                y = conv2d(y, w, self.b, stride=1, pad=0, visualize=self.visualize)
+            else:
+                if self.b is not None:
+                    y += self.b.reshape(1, -1, 1, 1)
+        elif self.groups > 1:
+            # 分组卷积
+            y = grouped_conv2d(
+                inputs, self.W, self.b,
+                stride=self.stride,
+                pad=self.pad,
+                groups=self.groups,
+                dilation=self.dilation,
+                visualize=self.visualize
+            )
+        else:
+            # 普通卷积
+            y = conv2d(
+                inputs, self.W, self.b,
+                stride=self.stride,
+                pad=self.pad,
+                dilation=self.dilation,
+                visualize=self.visualize
+            )
+        return y
+# 转置卷积层
+class Deconv2d(Layer):
+    def __init__(self, out_channels, kernel_size, stride=1,
+                 pad=0, nobias=False, dtype=np.float32, in_channels=None, visualize=False):
+  
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -120,54 +232,107 @@ class Conv2d(Layer):
         C, OC = self.in_channels, self.out_channels
         KH, KW = pair(self.kernel_size)
         scale = np.sqrt(1 / (C * KH * KW))
-        W_data = xp.random.randn(OC, C, KH, KW).astype(self.dtype) * scale
+        W_data = xp.random.randn(C, OC, KH, KW).astype(self.dtype) * scale
         self.W.data = W_data
 
+    def forward(self, x):
+        if self.W.data is None:
+            self.in_channels = x.shape[1]
+            self._init_W()
+
+        y = deconv2d(x, self.W, self.b, self.stride, self.pad, visualize=self.visualize)
+        return y
+
+from ..base import Config
+
+class BatchNorm(Layer):
+    def __init__(self, num_features, num_dims=4, eps=1e-5, momentum=0.9, dtype=np.float32):
+        super().__init__()
+        self.num_features = num_features
+        self.num_dims = num_dims
+        self.eps = eps
+        self.momentum = momentum
+        self.dtype = dtype
+        
+        if num_dims == 2:
+            shape = (1, num_features)
+        else:
+            shape = (1, num_features, 1, 1)
+        
+        # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成1和0
+        self.gamma = Parameter(np.ones(shape, dtype=dtype), name='gamma')
+        self.beta = Parameter(np.zeros(shape, dtype=dtype), name='beta')
+        
+        # 非模型参数的变量初始化为0和1
+        self.moving_mean = np.zeros(shape, dtype=dtype)
+        self.moving_var = np.ones(shape, dtype=dtype)
+
+    def forward(self, x):
+        # 使用BatchNormFunction进行前向传播
+        from ..base.functions import batch_norm
+        y = batch_norm(x, self.gamma, self.beta, self.moving_mean, self.moving_var, 
+                      self.eps, self.momentum, Config.train)
+        
+        # 更新移动平均
+        if Config.train:
+            # BatchNormFunction会更新moving_mean和moving_var
+            # 注意：这里需要从函数返回值中获取更新后的值
+            # 但由于我们的函数设计，暂时在函数内部直接更新
+            pass
+        
+        return y
+
+# module.py 中添加
+
+class BatchNorm2d(Layer):
+    def __init__(self, out_channels, momentum=0.9, eps=1e-5):
+        super().__init__()
+        self.out_channels = out_channels
+        self.momentum = momentum
+        self.eps = eps
+
+        # 可训练参数 γ 和 β
+        self.gamma = Parameter(np.ones(out_channels, dtype=np.float32), name='gamma')
+        self.beta  = Parameter(np.zeros(out_channels, dtype=np.float32), name='beta')
+        # 不可训练的运行统计量（仍用 Tensor 存储，但 requires_grad=False）
+        self.running_mean = Parameter(np.zeros(out_channels, dtype=np.float32), name='running_mean')
+        self.running_mean.requires_grad=False
+        self.running_var  = Parameter(np.ones(out_channels, dtype=np.float32), name='running_var')
+        self.running_var.requires_grad=False
+
+    def forward(self, inputs):
+        x = (inputs, self.gamma, self.beta)
+        y = batch_norm2d(x, self.running_mean, self.running_var, self.momentum, self.eps)
+        return y
+    
+class FusedConvReLU(Conv2d):
     def forward(self, inputs):
         if self.W.data is None:
             self.in_channels = inputs.shape[1]          
             self._init_W()
 
-        y = conv2d(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
+        y = fused_conv_relu(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
         return y
-#反卷积层    一般用不到
-# class Deconv2d(Layer):
-#     def __init__(self, out_channels, kernel_size, stride=1,
-#                  pad=0, nobias=False, dtype=np.float32, in_channels=None):
-  
-#         super().__init__()
-#         self.in_channels = in_channels
-#         self.out_channels = out_channels
-#         self.kernel_size = kernel_size
-#         self.stride = stride
-#         self.pad = pad
-#         self.dtype = dtype
 
-#         self.W = Parameter(None, name='W')
-#         if in_channels is not None:
-#             self._init_W()
+class FusedConvBNReLU(Layer):
+    def __init__(self, out_channels, kernel_size, stride=1, pad=0,
+                 momentum=0.9, eps=1e-5, in_channels=None, visualize=False):
+        super().__init__()
+        self.conv = Conv2d(out_channels, kernel_size, stride, pad, 
+                           nobias=True, in_channels=in_channels, visualize=visualize)
+        self.bn = BatchNorm2d(out_channels, momentum, eps)
+        self.visualize = visualize
 
-#         if nobias:
-#             self.b = None
-#         else:
-#             self.b = Parameter(np.zeros(out_channels, dtype=dtype), name='b')
-
-#     def _init_W(self, xp=np):
-#         C, OC = self.in_channels, self.out_channels
-#         KH, KW = pair(self.kernel_size)
-#         scale = np.sqrt(1 / (C * KH * KW))
-#         W_data = xp.random.randn(C, OC, KH, KW).astype(self.dtype) * scale
-#         self.W.data = W_data
-
-#     def forward(self, x):
-#         if self.W.data is None:
-#             self.in_channels = x.shape[1]
-#             self._init_W()
-
-#         y = F.deconv2d(x, self.W, self.b, self.stride, self.pad)
-#         return y
-
-
+    def forward(self, inputs):
+        # 手动调用融合函数
+        return fused_conv_bn_relu(
+            inputs, self.conv.W, self.conv.b, 
+            self.bn.gamma, self.bn.beta,
+            self.bn.running_mean, self.bn.running_var,
+            stride=self.conv.stride, pad=self.conv.pad,
+            momentum=self.bn.momentum, eps=self.bn.eps,
+            visualize=self.visualize
+        )
 
 #由于池化层，relu函数等不需要参数，这些可以直接用function中的函数即可
 
@@ -301,18 +466,19 @@ class CNNWithPooling(Module):
         
         # 卷积层部分
         layers = [
-            Conv2d(32, 3, pad=1),  # 卷积层
+            Conv2d(in_channels=in_channels,out_channels=32, kernel_size=3, pad=1),  # 卷积层
             relu,                   # 激活函数
-            pooling(2, 2),        # 池化层
+            F.Pooling(kernel_size=2,stride=2),        # 池化层
             
-            Conv2d(64, 3, pad=1),
+            Conv2d(out_channels=64, kernel_size=3, pad=1),
             relu,
-            pooling(2, 2),
+            F.Pooling(kernel_size=2,stride=2),
        
         ]
         
         # 全连接层部分
         fc_layers = [
+            flatten,
             Linear(128),
             relu,
             Linear(64),
@@ -333,3 +499,25 @@ class CNNWithPooling(Module):
         for layer in self.layers:
             inputs = layer(inputs)
         return inputs
+
+class ResidualBlock(Module):
+    def __init__(self, in_channels, out_channels, stride=1, downsample=False):
+        super().__init__()
+        self.conv1 = Conv2d(out_channels, kernel_size=3, stride=stride, pad=1)
+        self.bn1 = BatchNorm(out_channels)
+        self.relu = relu
+        self.conv2 = Conv2d(out_channels, kernel_size=3, stride=1, pad=1)
+        self.bn2 = BatchNorm(out_channels)
+        if downsample:
+            self.conv3 = Conv2d(out_channels, kernel_size=1, stride=stride, in_channels=in_channels)
+        else:
+            self.conv3 = None
+        self.downsample = downsample
+    
+    def forward(self, x):
+        y = self.relu(self.bn1(self.conv1(x)))
+        y = self.bn2(self.conv2(y))
+        if self.conv3:
+            x = self.conv3(x)
+        y = self.relu(x + y)
+        return y
