@@ -1,8 +1,13 @@
 # file name: train_lenet_local_mnist_fixed.py
 import numpy as np
+import sys
 from pathlib import Path
 import pickle
 import gzip
+
+# 添加code目录到Python搜索路径，这样就能找到eneuro模块
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 from eneuro.nn.module import Module
 from eneuro.utils import Visualizer
 

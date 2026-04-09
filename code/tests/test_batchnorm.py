@@ -2,7 +2,9 @@ import numpy as np
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'code')))
+# 添加code目录到Python搜索路径，这样就能找到eneuro模块
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from eneuro.base.core import Tensor, Config
 from eneuro.base.functions import BatchNormFunction
