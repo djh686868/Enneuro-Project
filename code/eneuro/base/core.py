@@ -14,20 +14,26 @@ class Config:
     enable_backprop = True
     train = True
 
+    record_graph = False
+    current_tracer = None   # 当前活动的 Tracer
+
+    @classmethod
     @contextlib.contextmanager
-    def using_config(self, value):
-        old_value = getattr(Config, self)
-        setattr(Config, self, value)
+    def using_config(cls, attr, value):
+        old_value = getattr(Config, attr)
+        setattr(Config, attr, value)
         try:
             yield
         finally:
-            setattr(Config, self, old_value)
+            setattr(Config, attr, old_value)
 
-    def no_grad(self):
-        return self.using_config('enable_backprop', False)
+    @classmethod
+    def no_grad(cls):
+        return cls.using_config('enable_backprop', False)
 
-    def test_mode(self):
-        return self.using_config('train', False)
+    @classmethod
+    def test_mode(cls):
+        return cls.using_config('train', False)
 
 
 @total_ordering
@@ -131,6 +137,7 @@ class Tensor(StateDict):
                 for x, gx in zip(f.inputs, gxs):
                     # if not isinstance(gx, Tensor):
                     #     gx = Tensor(gx)
+                    assert isinstance(gx,Tensor), "请检查反向传播中的数据是否是Tensor类型！"
                     if x.grad is None:
                         x.grad = gx
                     else:
@@ -205,6 +212,8 @@ def from_dict(d: dict) -> None:  # 序列化读取数据
 
 def as_array(x):
     """将输入转换为numpy数组"""
+    if isinstance(x, Tensor):
+        return as_array(x.data)
     if np.isscalar(x):
         return np.array(x)
     return x
@@ -242,6 +251,9 @@ class Function:
         current_layer_name = self.__class__.__name__.lower()
         if VISUAL_CONFIG["ENABLE_ALL_LAYERS"] and self.visualize:
             self._print_output(outputs[0])
+
+        if Config.record_graph and Config.current_tracer is not None:
+            Config.current_tracer.record(self, inputs, outputs)
 
         return outputs if len(outputs) > 1 else outputs[0]
 
