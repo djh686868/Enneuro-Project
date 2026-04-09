@@ -282,8 +282,6 @@ class BatchNorm(Layer):
         
         return y
 
-# module.py 中添加
-
 class BatchNorm2d(Layer):
     def __init__(self, out_channels, momentum=0.9, eps=1e-5):
         super().__init__()
@@ -305,34 +303,72 @@ class BatchNorm2d(Layer):
         y = batch_norm2d(x, self.running_mean, self.running_var, self.momentum, self.eps)
         return y
     
-class FusedConvReLU(Conv2d):
-    def forward(self, inputs):
-        if self.W.data is None:
-            self.in_channels = inputs.shape[1]          
-            self._init_W()
+class FusedConvReLU(Layer):
+    def __init__(self, out_channels, kernel_size, stride=1, pad=0, 
+                 nobias=False, dtype=np.float32, in_channels=None, visualize=False, 
+                 groups=1, depthwise=False, dilation=1):
+        super().__init__()
+        self.conv = Conv2d(out_channels, kernel_size, stride, pad, 
+                 nobias, dtype, in_channels, visualize, 
+                 groups, depthwise, dilation)
 
-        y = fused_conv_relu(inputs, self.W, self.b, self.stride, self.pad,self.visualize)
+    def forward(self, inputs):
+        if self.conv.depthwise:
+            # 深度可分离卷积: 先进行逐通道卷积，再进行1x1卷积
+            print("Warning: Not supported fusion (depthwise conv). Using not fused function.")
+            y = self.conv.forward(inputs)
+            y = relu(y)
+
+        elif self.conv.groups > 1:
+            # 分组卷积
+            print("Warning: Not supported fusion (grouped conv). Using not fused function.")
+            y = self.conv.forward(inputs)
+            y = relu(y)
+            
+        else:
+            # 普通卷积
+            y = fused_conv_relu(inputs, self.conv.W, self.conv.b, self.conv.stride, 
+                                self.conv.pad, self.conv.dilation, self.conv.visualize)
         return y
 
 class FusedConvBNReLU(Layer):
-    def __init__(self, out_channels, kernel_size, stride=1, pad=0,
-                 momentum=0.9, eps=1e-5, in_channels=None, visualize=False):
+    def __init__(self, out_channels, kernel_size, stride=1, pad=0, 
+                 nobias=False, dtype=np.float32, in_channels=None, visualize=False, 
+                 groups=1, depthwise=False, dilation=1,
+                 momentum=0.9, eps=1e-5):
         super().__init__()
         self.conv = Conv2d(out_channels, kernel_size, stride, pad, 
-                           nobias=True, in_channels=in_channels, visualize=visualize)
+                 nobias, dtype, in_channels, visualize, 
+                 groups, depthwise, dilation)
         self.bn = BatchNorm2d(out_channels, momentum, eps)
         self.visualize = visualize
 
     def forward(self, inputs):
-        # 手动调用融合函数
-        return fused_conv_bn_relu(
-            inputs, self.conv.W, self.conv.b, 
-            self.bn.gamma, self.bn.beta,
-            self.bn.running_mean, self.bn.running_var,
-            stride=self.conv.stride, pad=self.conv.pad,
-            momentum=self.bn.momentum, eps=self.bn.eps,
-            visualize=self.visualize
-        )
+        if self.conv.depthwise:
+            # 深度可分离卷积: 先进行逐通道卷积，再进行1x1卷积
+            print("Warning: Not supported fusion (depthwise conv). Using not fused function.")
+            y = self.conv.forward(inputs)
+            y = self.bn.forward(y)
+            y = relu(y)
+
+        elif self.conv.groups > 1:
+            # 分组卷积
+            print("Warning: Not supported fusion (grouped conv). Using not fused function.")
+            y = self.conv.forward(inputs)
+            y = self.bn.forward(y)
+            y = relu(y)
+            
+        else:
+            # 普通卷积
+            y = fused_conv_bn_relu(
+                inputs, self.conv.W, self.conv.b, 
+                self.bn.gamma, self.bn.beta,
+                self.bn.running_mean, self.bn.running_var,
+                stride=self.conv.stride, pad=self.conv.pad, dilation=self.conv.dilation,
+                momentum=self.bn.momentum, eps=self.bn.eps,
+                visualize=self.visualize
+            )
+        return y
 
 #由于池化层，relu函数等不需要参数，这些可以直接用function中的函数即可
 

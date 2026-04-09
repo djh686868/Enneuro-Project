@@ -96,10 +96,13 @@ class FusionPattern:
                 # 然后找到该 Tensor 的下一个 Function 节点
                 next_func = None
                 for tensor_node in succ_tensors:
+                    if len(graph.output_edges[tensor_node.id]) != 1:
+                        return None  # 多个消费者，不安全融合
+                    
                     func_succ = [graph.nodes[succ_id] for succ_id in graph.output_edges[tensor_node.id]
                                  if graph.nodes[succ_id].type == NodeType.FUNCTION]
                     if func_succ:
-                        # 如果多个输出连接到不同 Function，这里取第一个（简单线性假设）
+                        # 如果多个输出连接到不同 Function，这里取第一个（简单线性假设）（由于前面防止了不安全融合，这里只会有1个）
                         next_func = func_succ[0]
                         break
                 if next_func is None:
@@ -190,9 +193,10 @@ class MatchResult:
             conv_node = self.matched_nodes[0]
             stride = conv_node.params.get('stride', (1, 1))
             pad = conv_node.params.get('pad', (0, 0))
+            dilation = conv_node.params.get('dilation', (1, 1))
             # 延迟导入避免循环依赖
             from ..base.functions import FusedConvReLU
-            return FusedConvReLU(stride=stride, pad=pad)
+            return FusedConvReLU(stride=stride, pad=pad, dilation=dilation)
         elif pattern_name == "conv_bn_relu":
             '''
             原结构
@@ -223,20 +227,16 @@ class MatchResult:
             bn_node = self.matched_nodes[1]
             stride = conv_node.params.get('stride', (1, 1))
             pad = conv_node.params.get('pad', (0, 0))
+            dilation = conv_node.params.get('dilation', (1, 1))
             momentum = bn_node.params.get('momentum', 0.9)
             eps = bn_node.params.get('eps', 1e-5)
             
-            from ..base import Tensor,Parameter
-            import numpy as np
-            running_mean = bn_node.params.get('running_mean', 
-                                              Parameter(np.zeros(bn_node.params.get('outsize',3), dtype=np.float32), name='running_mean'))
-            running_mean.requires_grad=False
-            running_var = bn_node.params.get('running_var', 
-                                             Parameter(np.ones(bn_node.params.get('outsize',3), dtype=np.float32), name='running_mean'))
-            running_var.requires_grad=False
+            bn_func = bn_node.obj  # functions.BatchNorm2d 实例
+            running_mean = bn_func.running_mean
+            running_var = bn_func.running_var
             
             from ..base.functions import FusedConvBNReLU
-            func = FusedConvBNReLU(stride=stride, pad=pad, running_mean=running_mean, running_var=running_var, momentum=momentum, eps=eps)
+            func = FusedConvBNReLU(stride=stride, pad=pad, dilation=dilation, running_mean=running_mean, running_var=running_var, momentum=momentum, eps=eps)
 
             # 处理中间输入
             gamma_node = graph.nodes[graph.input_edges[bn_node.id][1]]

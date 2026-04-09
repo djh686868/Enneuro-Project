@@ -59,7 +59,7 @@ class Tracer:
         """
         params = {'class_name': func.__class__.__name__}
         # 常见于卷积、池化等算子的参数
-        common_attrs = ['stride', 'pad', 'kernel_size', 'axis', 'keepdims',
+        common_attrs = ['stride', 'pad', 'dilation', 'kernel_size', 'axis', 'keepdims',
                         'momentum', 'eps', 'outsize', 'to_matrix','running_mean','running_var'
                         ]
         for attr in common_attrs:
