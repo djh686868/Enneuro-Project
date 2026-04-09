@@ -20,6 +20,9 @@ class Optimizer(StateDict):
 
     def __init__(self, params: list[Parameter], lr: float = 0.01,
                  l2_lambda: float = 0.0, l1_lambda: float = 0.0):
+        # 排除不可训练参数
+        params = [param for param in params if param.requires_grad == True]
+        
         self.params = list(params)
         self._state.update(
             lr=lr, 
@@ -69,8 +72,8 @@ class Optimizer(StateDict):
         self._state = new_state
 
     def _apply_regularization(self, param: Parameter, grad_data: np.ndarray) -> np.ndarray:
-        if param.name == 'b':
-            return grad_data  # 偏置项不进行正则化
+        if param.name != 'W':
+            return grad_data  # 只对权重进行正则化
         
         #print(param.name)
 
