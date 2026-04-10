@@ -1,4 +1,4 @@
-# -*- coding: gbk -*-
+# -*- coding: utf-8 -*-
 import sys
 import gzip
 import pickle
@@ -8,6 +8,8 @@ import numpy as np
 
 # 添加code目录到Python搜索路径，这样就能找到eneuro模块
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from eneuro.base import as_Tensor, Config  # noqa: E402
 from eneuro.base import functions as F      # noqa: E402
@@ -26,7 +28,7 @@ def find_mnist_pkl() -> Path:
         if p.exists():
             return p
     raise FileNotFoundError(
-        "�Ҳ��� mnist.pkl���ѳ���·��:\n" + "\n".join(str(p) for p in candidates)
+        "找不到 mnist.pkl，已尝试路径:\n" + "\n".join(str(p) for p in candidates)
     )
 
 
@@ -55,7 +57,7 @@ def load_mnist_from_pkl(pkl_path: Path):
     x_test = np.array(x_test, dtype=np.float32)
     y_test = np.array(y_test, dtype=np.int64)
 
-    # ��һ�� + ͳһΪ NCHW
+    # 归一化并统一为 NCHW
     x_train = x_train / 255.0
     x_test = x_test / 255.0
     if x_train.ndim == 2 and x_train.shape[1] == 784:
@@ -93,7 +95,7 @@ class SimpleDataLoader:
 
 
 class TinyResNetForMNIST(Module):
-    """������֤ ResidualBlock �ļ� ResNet��"""
+    """用于验证 ResidualBlock 的小型 ResNet。"""
 
     def __init__(self, num_classes=10):
         super().__init__()
@@ -136,28 +138,28 @@ def evaluate(model: TinyResNetForMNIST, x: np.ndarray, y: np.ndarray, batch_size
 
 
 def test_residualblock_downsample_special():
-    """ResidualBlock �²���ר����ԡ�"""
+    """ResidualBlock 下采样专项测试。"""
     block_ds = ResidualBlock(in_channels=16, out_channels=32, stride=2, downsample=True)
     x_ds = as_Tensor(np.random.randn(4, 16, 28, 28).astype(np.float32))
     y_ds = block_ds(x_ds)
 
     # 1) �²�������״Ӧ�仯Ϊ (N, 32, 14, 14)
     assert y_ds.shape == (4, 32, 14, 14), (
-        f"Downsample��״����: got={y_ds.shape}, expect=(4, 32, 14, 14)"
+        f"Downsample 形状不正确: got={y_ds.shape}, expect=(4, 32, 14, 14)"
     )
 
     # 2) �²�����֧Ӧ����
-    assert block_ds.conv3 is not None, "downsample=True ʱӦ���� shortcut �� 1x1 ����"
+    assert block_ds.conv3 is not None, "downsample=True 时应包含 shortcut 的 1x1 卷积"
 
     # 3) ���򴫲�Ӧ��������֧��shortcut��֧
     ds_loss = y_ds * y_ds
     block_ds.cleargrads()
     ds_loss.backward()
-    assert block_ds.conv1.W.grad is not None, "�²���������֧ conv1 δ����ݶ�"
-    assert block_ds.conv2.W.grad is not None, "�²���������֧ conv2 δ����ݶ�"
-    assert block_ds.conv3.W.grad is not None, "�²����� shortcut ��֧ conv3 δ����ݶ�"
+    assert block_ds.conv1.W.grad is not None, "下采样主分支 conv1 未获得梯度"
+    assert block_ds.conv2.W.grad is not None, "下采样主分支 conv2 未获得梯度"
+    assert block_ds.conv3.W.grad is not None, "下采样 shortcut 分支 conv3 未获得梯度"
 
-    print("[PASS] ResidualBlock �²���ר�����ͨ��")
+    print("[PASS] ResidualBlock 下采样专项测试通过")
 
 
 def main():
@@ -165,7 +167,7 @@ def main():
 
     # 1) �������ݣ�ʹ���Ӽ�����֤����ʱ��ɿأ�
     pkl_path = find_mnist_pkl()
-    print(f"[INFO] ʹ�������ļ�: {pkl_path}")
+    print(f"[INFO] 使用数据文件: {pkl_path}")
 
     x_train, y_train, x_test, y_test = load_mnist_from_pkl(pkl_path)
     x_train, y_train = x_train[:2000], y_train[:2000]
@@ -176,20 +178,20 @@ def main():
     x_dummy = as_Tensor(np.random.randn(8, 16, 28, 28).astype(np.float32))
     y_dummy = block(x_dummy)
     assert y_dummy.shape == x_dummy.shape, (
-        f"ResidualBlock ��״��ƥ��: input={x_dummy.shape}, output={y_dummy.shape}"
+        f"ResidualBlock 形状不匹配: input={x_dummy.shape}, output={y_dummy.shape}"
     )
 
     dummy_loss = y_dummy * y_dummy
     block.cleargrads()
     dummy_loss.backward()
     has_grad = any((p.grad is not None) for p in block.params())
-    assert has_grad, "ResidualBlock ���򴫲�������ݶ�Ϊ��"
-    print("[PASS] ResidualBlock ��״�뷴�򴫲����ͨ��")
+    assert has_grad, "ResidualBlock 反向传播未产生梯度"
+    print("[PASS] ResidualBlock 形状与反向传播检查通过")
 
-    # 2.1) �²���ר�����
+    # 2.1) 下采样专项测试
     test_residualblock_downsample_special()
 
-    # 3) �ü�ResNet��MNIST�Ͻ���ѵ����ѧϰ�Բ���
+    # 3) 使用小型 ResNet 在 MNIST 子集上进行学习性测试
     model = TinyResNetForMNIST(num_classes=10)
     optimizer = Adam(model.params(), lr=0.001)
     train_loader = SimpleDataLoader(NumpyDataset(x_train, y_train), batch_size=64, shuffle=True)
@@ -214,11 +216,11 @@ def main():
     print(f"[FINAL] loss={final_loss:.4f}, acc={final_acc:.4f}")
 
     # 4) ���ձ�׼��׼ȷ�����Ը�������²�(10%)�ҽϳ�ʼ������
-    assert final_acc > 0.20, f"����׼ȷ�ʹ���: {final_acc:.4f}"
+    assert final_acc > 0.20, f"最终准确率过低: {final_acc:.4f}"
     assert final_acc >= init_acc + 0.05, (
-        f"ѵ����׼ȷ��δ��������: init={init_acc:.4f}, final={final_acc:.4f}"
+        f"训练后准确率未明显提升: init={init_acc:.4f}, final={final_acc:.4f}"
     )
-    print("[PASS] TinyResNet + ResidualBlock ��MNIST�Ӽ���ͨ����ѧϰ�Բ���")
+    print("[PASS] TinyResNet + ResidualBlock 在 MNIST 子集上通过学习性测试")
 
 
 if __name__ == "__main__":

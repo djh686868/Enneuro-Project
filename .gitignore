@@ -4,3 +4,5 @@ __pycache__/
 *.pyo
 *.pyd
 Enneuro-Project - 251226/
+*checkpoint*
+*test*.json

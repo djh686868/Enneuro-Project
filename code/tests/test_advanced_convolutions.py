@@ -1,10 +1,10 @@
-# -*- coding: gbk -*-
+# -*- coding: utf-8 -*-
 """
-�߼�������Ԫ���ԣ�
-1) ��ȿɷ������ǰ����ֵ��ȷ��
-2) ���ž���ǰ����ֵ��ȷ��
-3) ת�þ���ǰ����ֵ��ȷ��
-4) ��������ݶ���ͨ�Լ��
+高级卷积单元测试：
+1) 深度可分离卷积前向数值正确性
+2) 扩张卷积前向数值正确性
+3) 转置卷积前向数值正确性
+4) 特殊结构梯度连通性检查
 """
 
 import sys
@@ -116,7 +116,7 @@ def run_unit_tests():
     np.random.seed(2026)
     reports = []
 
-    # 1) ��ȿɷ������ǰ����ֵ
+    # 1) 深度可分离卷积前向数值
     x = np.random.randn(2, 3, 8, 8).astype(np.float32)
     w_dw = np.random.randn(3, 1, 3, 3).astype(np.float32)
     b_dw = np.random.randn(3).astype(np.float32)
@@ -135,9 +135,9 @@ def run_unit_tests():
     y_ref = naive_conv2d(y_ref_dw, w_pw, b_pw, stride=1, pad=0, dilation=1, groups=1)
 
     ok = np.allclose(y_impl, y_ref, atol=1e-5, rtol=1e-5)
-    reports.append(("��ȿɷ������ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_impl - y_ref)))))
+    reports.append(("separable conv forward correctness", ok, float(np.max(np.abs(y_impl - y_ref)))))
 
-    # 2) ���ž���ǰ����ֵ
+    # 2) 扩张卷积前向数值
     x_di = np.random.randn(1, 2, 10, 10).astype(np.float32)
     w_di = np.random.randn(4, 2, 3, 3).astype(np.float32)
     b_di = np.random.randn(4).astype(np.float32)
@@ -145,9 +145,9 @@ def run_unit_tests():
     y_di = conv2d(as_Tensor(x_di), as_Tensor(w_di), as_Tensor(b_di), stride=(1, 1), pad=(2, 2), dilation=(2, 2)).data
     y_ref_di = naive_conv2d(x_di, w_di, b_di, stride=1, pad=2, dilation=2, groups=1)
     ok = np.allclose(y_di, y_ref_di, atol=1e-5, rtol=1e-5)
-    reports.append(("���ž���ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_di - y_ref_di)))))
+    reports.append(("dilated conv forward correctness", ok, float(np.max(np.abs(y_di - y_ref_di)))))
 
-    # 3) ת�þ���ǰ����ֵ
+    # 3) 转置卷积前向数值
     x_de = np.random.randn(2, 3, 5, 5).astype(np.float32)
     w_de = np.random.randn(3, 4, 3, 3).astype(np.float32)
     b_de = np.random.randn(4).astype(np.float32)
@@ -155,9 +155,9 @@ def run_unit_tests():
     y_de = deconv2d(as_Tensor(x_de), as_Tensor(w_de), as_Tensor(b_de), stride=(2, 2), pad=(1, 1)).data
     y_ref_de = naive_deconv2d(x_de, w_de, b_de, stride=2, pad=1)
     ok = np.allclose(y_de, y_ref_de, atol=1e-5, rtol=1e-5)
-    reports.append(("ת�þ���ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_de - y_ref_de)))))
+    reports.append(("deconv forward correctness", ok, float(np.max(np.abs(y_de - y_ref_de)))))
 
-    # 4) �ݶ���ͨ��
+    # 4) 梯度连通性检查
     xg = as_Tensor(np.random.randn(2, 3, 8, 8).astype(np.float32))
 
     sep_block = SeparableConvBlock(3, 6)
@@ -167,7 +167,7 @@ def run_unit_tests():
     loss_sep.backward()
     sep_dw_grad = sep_block.dw.W.grad is not None
     sep_pw_grad = sep_block.pw.W.grad is not None
-    reports.append(("��ȿɷ�������ݶ���ͨ", sep_dw_grad and sep_pw_grad, 0.0))
+    reports.append(("separable conv gradient flow", sep_dw_grad and sep_pw_grad, 0.0))
 
     dil_conv = Conv2d(6, kernel_size=3, stride=1, pad=2, in_channels=3, dilation=2)
     y_dil = dil_conv(xg)
@@ -175,19 +175,19 @@ def run_unit_tests():
     dil_conv.cleargrads()
     try:
         loss_dil.backward()
-        reports.append(("���ž����ݶ���ͨ", dil_conv.W.grad is not None, 0.0))
+        reports.append(("dilated conv gradient flow", dil_conv.W.grad is not None, 0.0))
     except Exception as e:
-        reports.append(("���ž����ݶ���ͨ", False, 0.0))
-        print(f"[WARN] ���ž������򴫲��쳣: {type(e).__name__}: {e}")
+        reports.append(("dilated conv gradient flow", False, 0.0))
+        print(f"[WARN] Dilated conv backward exception: {type(e).__name__}: {e}")
 
     deconv_layer = Deconv2d(4, kernel_size=3, stride=2, pad=1, in_channels=3)
     y_t = deconv_layer(xg)
     loss_t = (y_t * y_t)[0, 0, 0, 0]
     deconv_layer.cleargrads()
     loss_t.backward()
-    reports.append(("ת�þ����ݶ���ͨ", deconv_layer.W.grad is not None, 0.0))
+    reports.append(("deconv gradient flow", deconv_layer.W.grad is not None, 0.0))
 
-    print("\n========== �߼�������Ԫ���Ա��� ==========")
+    print("\n========== Advanced Convolution Unit Test Report ==========")
     pass_count = 0
     for name, ok, stat in reports:
         mark = "PASS" if ok else "FAIL"
@@ -199,10 +199,10 @@ def run_unit_tests():
     print(f"\nSummary: {pass_count}/{total} passed")
 
     if not all(x[1] for x in reports[:3]):
-        raise AssertionError("ǰ����ֵ��ȷ�Բ���ʧ�ܣ����޸�ʵ�֡�")
+        raise AssertionError("Forward correctness test failed; please check the implementation.")
 
     if not all(x[1] for x in reports[3:]):
-        print("[WARN] �ݶ���ͨ�Դ���ʧ����������Ӧ����ʵ�֡�")
+        print("[WARN] Some gradient-flow checks failed; please inspect the corresponding operators.")
 
 
 if __name__ == "__main__":
