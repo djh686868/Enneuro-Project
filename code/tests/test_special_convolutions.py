@@ -1,10 +1,10 @@
-# -*- coding: gbk -*-
+# -*- coding: utf-8 -*-
 """
-���������Ԫ���ԣ�
-1) grouped_conv2d ��ֵ��ȷ��
-2) depthwise_conv2d ��ֵ��ȷ�ԣ�channel_multiplier=1��
-3) dilation conv2d ��ֵ��ȷ��
-4) ��������㷴�򴫲��ݶ���ͨ�Լ��
+特殊卷积单元测试：
+1) grouped_conv2d 前向数值正确性
+2) depthwise_conv2d 前向数值正确性（channel_multiplier=1）
+3) dilation conv2d 前向数值正确性
+4) 特殊卷积反向传播梯度连通性检查
 """
 
 import os
@@ -28,7 +28,7 @@ def _pair(v):
 
 
 def naive_conv2d(x, w, b=None, stride=1, pad=0, dilation=1, groups=1):
-    """�� numpy ���ؾ�����֧�� groups / dilation��"""
+    """numpy 版卷积参考实现，支持 groups / dilation。"""
     sh, sw = _pair(stride)
     ph, pw = _pair(pad)
     dh, dw = _pair(dilation)
@@ -83,7 +83,7 @@ def run_unit_tests():
     y_impl = grouped_conv2d(as_Tensor(x), as_Tensor(w), as_Tensor(b), stride=(1, 1), pad=(1, 1), groups=2, dilation=(1, 1)).data
     y_ref = naive_conv2d(x, w, b, stride=1, pad=1, dilation=1, groups=2)
     ok = np.allclose(y_impl, y_ref, atol=1e-5, rtol=1e-5)
-    reports.append(("grouped_conv2d ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_impl - y_ref)))))
+    reports.append(("grouped_conv2d forward correctness", ok, float(np.max(np.abs(y_impl - y_ref)))))
 
     # 2) depthwise_conv2d correctness (multiplier=1)
     x_dw = np.random.randn(2, 3, 8, 8).astype(np.float32)
@@ -92,12 +92,12 @@ def run_unit_tests():
 
     y_dw = depthwise_conv2d(as_Tensor(x_dw), as_Tensor(w_dw), as_Tensor(b_dw), stride=(1, 1), pad=(1, 1), dilation=(1, 1)).data
 
-    # depthwise(multiplier=1) �ȼ��� groups=C �� grouped conv
+    # depthwise(multiplier=1) 等价于 groups=C 的 grouped conv
     w_group = np.zeros((3, 1, 3, 3), dtype=np.float32)
     w_group[:] = w_dw
     y_ref_dw = naive_conv2d(x_dw, w_group, b_dw, stride=1, pad=1, dilation=1, groups=3)
     ok = np.allclose(y_dw, y_ref_dw, atol=1e-5, rtol=1e-5)
-    reports.append(("depthwise_conv2d ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_dw - y_ref_dw)))))
+    reports.append(("depthwise_conv2d forward correctness", ok, float(np.max(np.abs(y_dw - y_ref_dw)))))
 
     # 3) dilation correctness (normal conv)
     x_di = np.random.randn(1, 2, 9, 9).astype(np.float32)
@@ -107,9 +107,9 @@ def run_unit_tests():
     y_di = conv2d(as_Tensor(x_di), as_Tensor(w_di), as_Tensor(b_di), stride=(1, 1), pad=(2, 2), dilation=(2, 2)).data
     y_ref_di = naive_conv2d(x_di, w_di, b_di, stride=1, pad=2, dilation=2, groups=1)
     ok = np.allclose(y_di, y_ref_di, atol=1e-5, rtol=1e-5)
-    reports.append(("dilation conv2d ǰ����ֵ��ȷ��", ok, float(np.max(np.abs(y_di - y_ref_di)))))
+    reports.append(("dilation conv2d forward correctness", ok, float(np.max(np.abs(y_di - y_ref_di)))))
 
-    # 4) �ݶ���ͨ�Լ��
+    # 4) 梯度连通性检查
     xg = as_Tensor(np.random.randn(2, 4, 8, 8).astype(np.float32))
 
     conv_normal = Conv2d(6, kernel_size=3, pad=1, in_channels=4)
@@ -118,7 +118,7 @@ def run_unit_tests():
     conv_normal.cleargrads()
     loss_normal.backward()
     normal_has_grad = conv_normal.W.grad is not None
-    reports.append(("��ͨ Conv2d �ݶ���ͨ", normal_has_grad, 0.0))
+    reports.append(("normal Conv2d gradient flow", normal_has_grad, 0.0))
 
     conv_group = Conv2d(6, kernel_size=3, pad=1, in_channels=4, groups=2)
     y_group = conv_group(xg)
@@ -126,7 +126,7 @@ def run_unit_tests():
     conv_group.cleargrads()
     loss_group.backward()
     group_has_grad = conv_group.W.grad is not None
-    reports.append(("���� Conv2d �ݶ���ͨ", group_has_grad, 0.0))
+    reports.append(("grouped Conv2d gradient flow", group_has_grad, 0.0))
 
     conv_depth = Conv2d(4, kernel_size=3, pad=1, in_channels=4, depthwise=True)
     y_depth = conv_depth(xg)
@@ -134,9 +134,9 @@ def run_unit_tests():
     conv_depth.cleargrads()
     loss_depth.backward()
     depth_has_grad = conv_depth.W.grad is not None
-    reports.append(("��Ⱦ��� Conv2d �ݶ���ͨ", depth_has_grad, 0.0))
+    reports.append(("depthwise Conv2d gradient flow", depth_has_grad, 0.0))
 
-    print("\n========== ���������Ԫ���Ա��� ==========")
+    print("\n========== Special Convolution Unit Test Report ==========")
     pass_count = 0
     for name, ok, stat in reports:
         mark = "PASS" if ok else "FAIL"
@@ -147,13 +147,13 @@ def run_unit_tests():
     total = len(reports)
     print(f"\nSummary: {pass_count}/{total} passed")
 
-    # ���ٱ�֤ǰ����ֵ���Զ�ͨ�����ݶ���ͨ��������¶���⡣
+    # 先保证前向数值和梯度连通性测试不暴露实现问题。
     forward_ok = all(item[1] for item in reports[:3])
     if not forward_ok:
-        raise AssertionError("ǰ����ֵ��ȷ�Բ��Դ���ʧ�ܣ��������޸�����ʵ�֡�")
+        raise AssertionError("Forward correctness test failed; please check the implementation.")
 
     if not group_has_grad or not depth_has_grad:
-        print("\n[WARN] ��⵽����/��Ⱦ�������δ����ݶȣ����Ӱ��ѵ���Ż�Ч����")
+        print("\n[WARN] Grouped/depthwise gradient flow is incomplete and may affect optimization.")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# -*- coding: gbk -*-
+# -*- coding: utf-8 -*-
 """
 ����������ɲ��ԣ�
 - ��׼��������
@@ -26,6 +26,8 @@ import numpy as np
 # 添加code目录到Python搜索路径，这样就能找到eneuro模块
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 from eneuro.base import Config, as_Tensor  # noqa: E402
 from eneuro.base import functions as F  # noqa: E402
 from eneuro.nn.loss import crossEntropyError  # noqa: E402
@@ -45,7 +47,7 @@ def find_mnist_pkl() -> Path:
     for p in candidates:
         if p.exists():
             return p
-    raise FileNotFoundError("�Ҳ��� mnist.pkl")
+    raise FileNotFoundError("MNIST pickle file not found")
 
 
 def load_mnist_from_pkl(pkl_path: Path):
@@ -66,7 +68,7 @@ def load_mnist_from_pkl(pkl_path: Path):
         x_test = data.get("test_img", data.get("x_test"))
         y_test = data.get("test_label", data.get("y_test"))
     else:
-        raise ValueError(f"δ֪��MNIST���ݸ�ʽ: {type(data)}")
+        raise ValueError(f"Unknown MNIST data format: {type(data)}")
 
     x_train = np.array(x_train, dtype=np.float32)
     y_train = np.array(y_train, dtype=np.int64)
@@ -294,7 +296,7 @@ def save_csv(results, out_csv):
         writer.writerow(["model", "epoch", "val_loss", "val_acc", "train_loss", "epoch_time_s"])
         for name, item in results.items():
             h = item["history"]
-            max_epoch = len(h["val_loss"])  # ���� epoch=0 �� init
+            max_epoch = len(h["val_loss"])  # epoch=0 is init
             for ep in range(max_epoch):
                 train_loss = ""
                 epoch_time = ""
@@ -308,7 +310,7 @@ def analyze_results(results):
     base = results["standard"]
     base_gain = base["history"]["val_acc"][-1] - base["history"]["val_acc"][0]
 
-    print("\n========== ���ɲ��Խ��ժҪ ==========")
+    print("\n========== Special Convolution Integration Summary ==========")
     for name, item in results.items():
         acc0 = item["history"]["val_acc"][0]
         accf = item["history"]["val_acc"][-1]
@@ -318,7 +320,7 @@ def analyze_results(results):
             f"acc_gain={gain:+.4f}, params={item['params']}, grad_coverage={item['grad_coverage']:.2f}"
         )
 
-    print("\n========== �������Ż�ʱ��ԭ����� ==========")
+    print("\n========== Why Optimization Gains May Be Limited ==========")
     for name, item in results.items():
         if name == "standard":
             continue
@@ -326,16 +328,16 @@ def analyze_results(results):
         reasons = []
 
         if gain < max(0.03, base_gain * 0.6):
-            reasons.append("����������ڻ���ģ�ͣ��Ż�Ч��������")
+            reasons.append("fewer parameters than baseline, but no accuracy gain in this setup")
         if item["grad_coverage"] < 0.9:
-            reasons.append("�����ݶȸ�����ƫ�ͣ����ƴ��ڼ���ͼ�Ͽ������¾��������Ա��Ż�")
+            reasons.append("gradient coverage is low, so some paths may not be trained effectively")
         if item["params"] < base["params"] and item["history"]["val_acc"][-1] < base["history"]["val_acc"][-1]:
-            reasons.append("���������ٴ������������½����ڵ�ǰѵ���ִ���Ƿ���")
+            reasons.append("fewer params but lower accuracy; the task may be too small to show the advantage")
 
         if not reasons:
-            reasons.append("��ģ���ڱ����Ӽ�ʵ�����������Ż�Ч��")
+            reasons.append("no clear improvement under the current experimental setup")
 
-        print(f"- {name}: " + "��".join(reasons))
+        print(f"- {name}: " + "; ".join(reasons))
 
 
 def main():
@@ -362,7 +364,7 @@ def main():
         print(f"\n[RUN] training {name} model...")
         model = factory(num_classes=10)
 
-        # �ݶȸ����ʣ�ѵ��ǰ���ټ�飩
+        # gradient coverage check before training
         gc = grad_coverage(model, x_train[:64], y_train[:64])
 
         history = train_model(
@@ -388,7 +390,7 @@ def main():
     analyze_results(results)
 
     print(f"\n[ARTIFACT] plot saved: {out_png}")
-    print(f"[ARTIFACT] csv  saved: {out_csv}")
+    print(f"[ARTIFACT] csv saved: {out_csv}")
 
 
 if __name__ == "__main__":

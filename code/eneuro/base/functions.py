@@ -973,6 +973,7 @@ def global_average_pooling(x):
     return GlobalAveragePooling()(x)
 
 class BatchNormFunction(Function):
+    # 注意：该类已被弃用，请使用 BatchNorm2d 替代
     def __init__(self, eps=1e-5, momentum=0.9, training=True, moving_mean=None, moving_var=None):
         super().__init__()
         self.eps = eps
@@ -1045,9 +1046,58 @@ class BatchNormFunction(Function):
         return dx, dgamma, dbeta
 
 def batch_norm(x, gamma, beta, moving_mean=None, moving_var=None, eps=1e-5, momentum=0.9, training=True):
-    # 调用BatchNormFunction，获取返回值
-    y = BatchNormFunction(eps, momentum, training, moving_mean, moving_var)(x, gamma, beta)
-    # 只返回y值，moving_mean和moving_var在函数内部直接更新
+    # 兼容旧接口：内部改为 BatchNorm2d 实现
+    x = as_Tensor(x)
+    gamma = as_Tensor(gamma)
+    beta = as_Tensor(beta)
+
+    is_2d = (x.ndim == 2)
+    if is_2d:
+        n, c = x.shape
+        x_in = x.reshape(n, c, 1, 1)
+    else:
+        x_in = x
+        c = x.shape[1]
+
+    # 兼容 moving_mean / moving_var 既可能是 ndarray 也可能是 Parameter
+    from .parameter import Parameter
+
+    if moving_mean is None:
+        running_mean = Parameter(np.zeros(c, dtype=x.data.dtype), name='running_mean')
+        running_mean.requires_grad = False
+    elif hasattr(moving_mean, 'data'):
+        running_mean = moving_mean
+    else:
+        mm = np.asarray(moving_mean)
+        running_mean = Parameter(mm.reshape(c).astype(x.data.dtype), name='running_mean')
+        running_mean.requires_grad = False
+
+    if moving_var is None:
+        running_var = Parameter(np.ones(c, dtype=x.data.dtype), name='running_var')
+        running_var.requires_grad = False
+    elif hasattr(moving_var, 'data'):
+        running_var = moving_var
+    else:
+        mv = np.asarray(moving_var)
+        running_var = Parameter(mv.reshape(c).astype(x.data.dtype), name='running_var')
+        running_var.requires_grad = False
+
+    y = batch_norm2d((x_in, gamma.reshape(c), beta.reshape(c)), running_mean, running_var, momentum, eps)
+
+    # 若传入的是 ndarray，回写统计量，保持旧行为
+    if moving_mean is not None and not hasattr(moving_mean, 'data'):
+        if np.asarray(moving_mean).ndim == 1:
+            moving_mean[...] = running_mean.data
+        else:
+            moving_mean[...] = running_mean.data.reshape(moving_mean.shape)
+    if moving_var is not None and not hasattr(moving_var, 'data'):
+        if np.asarray(moving_var).ndim == 1:
+            moving_var[...] = running_var.data
+        else:
+            moving_var[...] = running_var.data.reshape(moving_var.shape)
+
+    if is_2d:
+        return y.reshape(n, c)
     return y
     
 

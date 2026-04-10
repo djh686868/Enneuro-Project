@@ -135,6 +135,8 @@ class Tensor(StateDict):
                     gxs = (gxs,)
 
                 for x, gx in zip(f.inputs, gxs):
+                    if gx is None:
+                        continue
                     # if not isinstance(gx, Tensor):
                     #     gx = Tensor(gx)
                     assert isinstance(gx,Tensor), "请检查反向传播中的数据是否是Tensor类型！"
@@ -223,7 +225,7 @@ def as_Tensor(x):
     """将输入转换为Tensor对象"""
     if isinstance(x, Tensor):
         return x
-    return Tensor(x)
+    return Tensor(as_array(x))
 
 
 class Function:
@@ -327,7 +329,7 @@ class Add(Function):
             gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0, gx1
 def add(x0, x1):
-    x1 = as_array(x1)
+    x1 = as_Tensor(x1)
     return Add()(x0, x1)
 # Variable.__add__ = add
 # Variable.__radd__ = add
@@ -347,7 +349,7 @@ class Mul(Function):
             gx1 = f.sum_to(gx1, self.x1_shape)
         return gx0 * x1, gx1 * x0
 def mul(x0, x1):
-    x1 = as_array(x1)
+    x1 = as_Tensor(x1)
     return Mul()(x0, x1)
 # Variable.__mul__ = mul
 # Variable.__rmul__ = mul
@@ -377,11 +379,12 @@ class Sub(Function):
         return gx0, -gx1
 
 def sub(x0, x1):
-    x1 = as_array(x1)
+    x1 = as_Tensor(x1)
     return Sub()(x0, x1)
 # Variable.__sub__ = sub
 def rsub(x0, x1):
-    x1 = as_array(x1)
+    x0 = as_Tensor(x0)
+    x1 = as_Tensor(x1)
     return Sub()(x1, x0) # rsub is the same as sub but with the arguments reversed
 # Variable.__rsub__ = rsub
 
@@ -401,11 +404,12 @@ class Div(Function):
         return gx0 / x1, -gx1 * x0 / x1 ** 2
 
 def div(x0, x1):
-    x1 = as_array(x1)
+    x1 = as_Tensor(x1)
     return Div()(x0, x1)
 # Variable.__truediv__ = div
 def rdiv(x0, x1):
-    x1 = as_array(x1)
+    x0 = as_Tensor(x0)
+    x1 = as_Tensor(x1)
     return Div()(x1, x0) # rdiv is the same as div but with the arguments reversed
 # Variable.__rtruediv__ = rdiv
 
