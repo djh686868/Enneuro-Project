@@ -569,11 +569,10 @@ def col2im_array(col, img_shape, kernel_size, stride, pad, to_matrix=True):
 #正式函数#
 #卷积函数和反卷积函数对称性强，大部分代码互为镜像
 class Conv2d(Function):
-    def __init__(self, stride=(1,1), pad=(0,0), dilation=1, visualize=False):
+    def __init__(self, stride=(1,1), pad=(0,0),visualize=False):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
-        self.dilation = pair(dilation)
         self.visualize = visualize
 
 
@@ -582,26 +581,20 @@ class Conv2d(Function):
         W = xs[1]
         b = xs[2]
         KH, KW = W.shape[2:]
-        col = im2col_array(x, (KH, KW), self.stride, self.pad, to_matrix=False, dilation=self.dilation)
+        SH, SW = self.stride
+        if KH == 3 and KW == 3 and SH == 1 and SW == 1:
+            return self.winograd_conv2d_forward(x, W, b)
+        else:
+            # 回退到原本基于 im2col + tensordot 的标准卷积
+            return self.im2col_conv2d_forward(x, W, b)
 
-        y = np.tensordot(col, W, ((1, 2, 3), (1, 2, 3)))
-        if b is not None:
-            y += b
-        y = np.rollaxis(y, 3, 1)
-        return y
+
 
     def backward(self, gys):
         x, W, b = self.inputs
         # ==== gx ====
-        gx_data = conv2d_backward_input_array(
-            gys.data, W.data,
-            stride=self.stride,
-            pad=self.pad,
-            dilation=self.dilation,
-            out_h=x.shape[2],
-            out_w=x.shape[3],
-        )
-        gx = as_Tensor(gx_data)
+        gx = deconv2d(gys, W, b=None, stride=self.stride, pad=self.pad,
+                      outsize=(x.shape[2], x.shape[3]))
         # ==== gW ====
         gW = Conv2DGradW(self)(x, gys)
         # ==== gb ====
@@ -610,9 +603,182 @@ class Conv2d(Function):
             gb = gys.sum(axis=(0, 2, 3))
         return gx, gW, gb
 
+    def im2col_conv2d_forward(self, x, W, b):
+        KH, KW = W.shape[2:]
+        col = im2col_array(x, (KH, KW), self.stride, self.pad, to_matrix=False)
+        y = np.tensordot(col, W, ((1, 2, 3), (1, 2, 3)))
+        if b is not None:
+            y += b
+        y = np.rollaxis(y, 3, 1)
+        # y = np.transpose(y, (0, 3, 1, 2))
+        return y
 
-def conv2d(x, W, b=None, stride=(1,1), pad=(0,0), dilation=1, visualize=False):
-    return Conv2d(stride, pad, dilation, visualize)(x, W, b)
+    def winograd_conv2d_forward(self, x, W, b):
+        # --- 1. 数据提取与类型转换 ---
+        x_np = x.data if isinstance(x, Tensor) else x
+        W_np = W.data if isinstance(W, Tensor) else W
+
+        if not isinstance(x_np, np.ndarray):
+            x_np = np.array(x_np)
+        if not isinstance(W_np, np.ndarray):
+            W_np = np.array(W_np)
+
+        N, C, H_in, W_in = x_np.shape
+        OC, _, KH, KW = W_np.shape
+
+        ph, pw = self.pad
+        dtype = x_np.dtype
+        calc_dtype = np.result_type(x_np.dtype, W_np.dtype)
+
+        # --- 2. Padding 与 tile 布局 ---
+        out_h = (H_in + 2 * ph - KH) + 1
+        out_w = (W_in + 2 * pw - KW) + 1
+
+        if out_h <= 0 or out_w <= 0:
+            oh = out_h if out_h > 0 else 0
+            ow = out_w if out_w > 0 else 0
+            return np.zeros((N, OC, oh, ow), dtype=dtype)
+
+        tile_h = (out_h + 1) // 2
+        tile_w = (out_w + 1) // 2
+
+        req_h = (tile_h - 1) * 2 + 4
+        req_w = (tile_w - 1) * 2 + 4
+
+        pad_bottom = req_h - H_in - ph
+        if pad_bottom < 0:
+            pad_bottom = 0
+        pad_right = req_w - W_in - pw
+        if pad_right < 0:
+            pad_right = 0
+
+        x_cast = x_np.astype(calc_dtype, copy=False)
+        xh = H_in + ph + pad_bottom
+        xw = W_in + pw + pad_right
+        W_work = W_np.astype(calc_dtype, copy=False)
+
+        # --- 3. 变换矩阵（按 dtype 缓存） ---
+        cls = self.__class__
+        if not hasattr(cls, '_winograd_consts_by_dtype'):
+            cls._winograd_consts_by_dtype = {}
+        if not hasattr(cls, '_winograd_u_cache'):
+            cls._winograd_u_cache = {}
+        if not hasattr(cls, '_winograd_workspace_cache'):
+            cls._winograd_workspace_cache = {}
+
+        dtype_key = np.dtype(calc_dtype).str
+        workspace_key = (N, C, OC, tile_h, tile_w, xh, xw, dtype_key)
+        workspace = cls._winograd_workspace_cache.get(workspace_key)
+        if workspace is None:
+            tile_count = N * tile_h * tile_w
+            workspace = {
+                'x_work': np.empty((N, C, xh, xw), dtype=calc_dtype),
+                'L': np.empty((N, C, tile_h, tile_w, 4, 4), dtype=calc_dtype),
+                'V': np.empty((N, C, tile_h, tile_w, 4, 4), dtype=calc_dtype),
+                'M16': np.empty((16, OC, tile_count), dtype=calc_dtype),
+                'y_buffer': np.empty((N, OC, tile_h * 2, tile_w * 2), dtype=calc_dtype),
+            }
+            cls._winograd_workspace_cache[workspace_key] = workspace
+            if len(cls._winograd_workspace_cache) > 4:
+                cls._winograd_workspace_cache.pop(next(iter(cls._winograd_workspace_cache)))
+
+        x_work = workspace['x_work']
+        x_work.fill(0)
+        x_work[:, :, ph:ph + H_in, pw:pw + W_in] = x_cast
+        consts = cls._winograd_consts_by_dtype.get(dtype_key)
+        if consts is None:
+            half = np.array(0.5, dtype=calc_dtype)
+            one = np.array(1.0, dtype=calc_dtype)
+            consts = (half, one)
+            cls._winograd_consts_by_dtype[dtype_key] = consts
+        half, _ = consts
+
+        # --- 4. 权重变换 U = G g G^T（仅用稳定轻量 key 缓存） ---
+        # 这里不回退到 im2col；仅优化 Winograd 本路径。
+        w_ptr = int(W_work.__array_interface__['data'][0])
+        u_cache_key = (w_ptr, W_work.shape, W_work.dtype.str, dtype_key)
+        cached_u = cls._winograd_u_cache.get(u_cache_key)
+        if cached_u is None:
+            g0 = W_work[:, :, 0, :]
+            g1 = W_work[:, :, 1, :]
+            g2 = W_work[:, :, 2, :]
+
+            T = np.empty((OC, C, 4, 3), dtype=calc_dtype)
+            T[:, :, 0, :] = g0
+            T[:, :, 1, :] = half * (g0 + g1 + g2)
+            T[:, :, 2, :] = half * (g0 - g1 + g2)
+            T[:, :, 3, :] = g2
+
+            U = np.empty((OC, C, 4, 4), dtype=calc_dtype)
+            U[:, :, :, 0] = T[:, :, :, 0]
+            U[:, :, :, 1] = half * (T[:, :, :, 0] + T[:, :, :, 1] + T[:, :, :, 2])
+            U[:, :, :, 2] = half * (T[:, :, :, 0] - T[:, :, :, 1] + T[:, :, :, 2])
+            U[:, :, :, 3] = T[:, :, :, 2]
+
+            U16 = np.ascontiguousarray(U.reshape(OC, C, 16).transpose(2, 0, 1))
+            cls._winograd_u_cache[u_cache_key] = (U, U16)
+            if len(cls._winograd_u_cache) > 8:
+                cls._winograd_u_cache.pop(next(iter(cls._winograd_u_cache)))
+        else:
+            U, U16 = cached_u
+
+        # --- 5. 输入 tile 变换 V = B^T d B（显式向量化公式） ---
+        tiles = np.lib.stride_tricks.sliding_window_view(x_work, (4, 4), axis=(2, 3))
+        d = tiles[:, :, 0:2 * tile_h:2, 0:2 * tile_w:2, :, :]
+
+        d0 = d[..., 0, :]
+        d1 = d[..., 1, :]
+        d2 = d[..., 2, :]
+        d3 = d[..., 3, :]
+
+        L = workspace['L']
+        L[..., 0, :] = d0 - d2
+        L[..., 1, :] = d1 + d2
+        L[..., 2, :] = d2 - d1
+        L[..., 3, :] = d1 - d3
+
+        V = workspace['V']
+        V[..., :, 0] = L[..., :, 0] - L[..., :, 2]
+        V[..., :, 1] = L[..., :, 1] + L[..., :, 2]
+        V[..., :, 2] = L[..., :, 2] - L[..., :, 1]
+        V[..., :, 3] = L[..., :, 1] - L[..., :, 3]
+
+        # --- 6. 核心乘法 M（全量 matmul，避免分块循环开销） ---
+        V16T = V.reshape(N, C, tile_h, tile_w, 16).transpose(4, 1, 0, 2, 3)
+        V16T = np.ascontiguousarray(V16T.reshape(16, C, N * tile_h * tile_w))
+
+        M16 = workspace['M16']
+        np.matmul(U16, V16T, out=M16)
+        M = M16.reshape(4, 4, OC, N, tile_h, tile_w).transpose(3, 2, 4, 5, 0, 1)
+
+        # --- 7. 输出逆变换 Y = A^T M A（显式向量化公式） ---
+        r0 = M[..., 0, :] + M[..., 1, :] + M[..., 2, :]
+        r1 = M[..., 1, :] - M[..., 2, :] - M[..., 3, :]
+
+        Y00 = r0[..., 0] + r0[..., 1] + r0[..., 2]
+        Y01 = r0[..., 1] - r0[..., 2] - r0[..., 3]
+        Y10 = r1[..., 0] + r1[..., 1] + r1[..., 2]
+        Y11 = r1[..., 1] - r1[..., 2] - r1[..., 3]
+
+        y_buffer = workspace['y_buffer']
+        y_buffer[:, :, 0::2, 0::2] = Y00
+        y_buffer[:, :, 0::2, 1::2] = Y01
+        y_buffer[:, :, 1::2, 0::2] = Y10
+        y_buffer[:, :, 1::2, 1::2] = Y11
+
+        y_res = y_buffer[:, :, :out_h, :out_w]
+
+        if b is not None:
+            b_val = b.data if isinstance(b, Tensor) else b
+            if b_val is not None:
+                if not isinstance(b_val, np.ndarray):
+                    b_val = np.array(b_val)
+                y_res += b_val.reshape(1, -1, 1, 1)
+
+        return y_res.astype(dtype, copy=False)
+
+def conv2d(x, W, b=None, stride=(1,1), pad=(0,0),visualize=False):
+    return Conv2d(stride, pad,visualize)(x, W, b)
 
 
 def conv2d_backward_input_array(gy, W, stride=(1, 1), pad=(0, 0), dilation=(1, 1), out_h=None, out_w=None):
