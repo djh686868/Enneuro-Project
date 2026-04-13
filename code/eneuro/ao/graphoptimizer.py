@@ -8,6 +8,13 @@ class GraphOptimizer:
         self.model = model
         self.sample_input = sample_input
 
+    def origin_graph(self) -> Graph:
+        # 记录一次前向，得到计算图
+        with trace_context() as tracer:
+            _ = self.model(self.sample_input)
+            graph = tracer.get_graph()
+        return graph
+
     def optimize(self) -> Graph:
         # 1. 记录一次前向，得到计算图
         with trace_context() as tracer:

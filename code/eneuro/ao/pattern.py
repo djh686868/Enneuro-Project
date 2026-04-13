@@ -221,7 +221,7 @@ class MatchResult:
                     Tensor2
 
                 其中x, W, b, Tensor2的连接由graph.replace_subgraph自动处理
-                gamma, beta在本方法中删除原来的边并连接至Conv2d, 然后交由graph.replace_subgraph自动处理
+                gamma, beta在本方法中删除原来的边并添加至self.input_tensors, 然后交由graph.replace_subgraph自动处理
             '''
             conv_node = self.matched_nodes[0]
             bn_node = self.matched_nodes[1]
