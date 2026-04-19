@@ -253,33 +253,33 @@ class BatchNorm(Layer):
         self.eps = eps
         self.momentum = momentum
         self.dtype = dtype
-        
-        if num_dims == 2:
-            shape = (1, num_features)
-        else:
-            shape = (1, num_features, 1, 1)
-        
-        # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成1和0
-        self.gamma = Parameter(np.ones(shape, dtype=dtype), name='gamma')
-        self.beta = Parameter(np.zeros(shape, dtype=dtype), name='beta')
-        
-        # 非模型参数的变量初始化为0和1
-        self.moving_mean = np.zeros(shape, dtype=dtype)
-        self.moving_var = np.ones(shape, dtype=dtype)
+
+        # 为兼容 BatchNorm2d 后端，gamma/beta 统一使用 (C,) 形状
+        self.gamma = Parameter(np.ones(num_features, dtype=dtype), name='gamma')
+        self.beta = Parameter(np.zeros(num_features, dtype=dtype), name='beta')
+
+        # 运行统计量以 Parameter 形式保存（不参与梯度）
+        self.running_mean = Parameter(np.zeros(num_features, dtype=dtype), name='running_mean')
+        self.running_mean.requires_grad = False
+        self.running_var = Parameter(np.ones(num_features, dtype=dtype), name='running_var')
+        self.running_var.requires_grad = False
+
+        # 兼容旧属性名
+        self.moving_mean = self.running_mean.data
+        self.moving_var = self.running_var.data
 
     def forward(self, x):
-        # 使用BatchNormFunction进行前向传播
-        from ..base.functions import batch_norm
-        y = batch_norm(x, self.gamma, self.beta, self.moving_mean, self.moving_var, 
-                      self.eps, self.momentum, Config.train)
-        
-        # 更新移动平均
-        if Config.train:
-            # BatchNormFunction会更新moving_mean和moving_var
-            # 注意：这里需要从函数返回值中获取更新后的值
-            # 但由于我们的函数设计，暂时在函数内部直接更新
-            pass
-        
+        if self.num_dims == 2:
+            n, c = x.shape
+            x_4d = x.reshape(n, c, 1, 1)
+            y_4d = batch_norm2d((x_4d, self.gamma, self.beta), self.running_mean, self.running_var, self.momentum, self.eps)
+            y = y_4d.reshape(n, c)
+        else:
+            y = batch_norm2d((x, self.gamma, self.beta), self.running_mean, self.running_var, self.momentum, self.eps)
+
+        # 保持旧字段同步
+        self.moving_mean = self.running_mean.data
+        self.moving_var = self.running_var.data
         return y
 
 class BatchNorm2d(Layer):

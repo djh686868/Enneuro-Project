@@ -1,14 +1,14 @@
-# -*- coding: gbk -*-
+# -*- coding: utf-8 -*-
 """
-�߼��������ɲ��ԣ���ǰһ��Ҫ��һ�£���
-- ��ȿɷ����������
-- ���ž�������
-- ת�þ�������
+高级卷积集成测试：先做单元验证，再做网络对比。
+- 深度可分离卷积网络
+- 扩张卷积网络
+- 转置卷积网络
 
-�����
-1) loss/acc ����
-2) ��������ѵ��ʱ���Ա�
-3) �Ż�Ч������ʱ����ԭ�����
+输出内容：
+1) loss/acc 对比
+2) 训练耗时对比
+3) 优化效果不足时的原因分析
 """
 
 import csv
@@ -25,6 +25,8 @@ import numpy as np
 
 # 添加code目录到Python搜索路径，这样就能找到eneuro模块
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from eneuro.base import Config, as_Tensor  # noqa: E402
 from eneuro.base import functions as F  # noqa: E402
@@ -345,7 +347,7 @@ def analyze_results(results):
     base = results["baseline"]
     base_gain = base["history"]["val_acc"][-1] - base["history"]["val_acc"][0]
 
-    print("\n========== �߼��������ɲ��Խ��ժҪ ==========")
+    print("\n========== 高级卷积集成测试结果摘要 ==========")
     for name, item in results.items():
         acc0 = item["history"]["val_acc"][0]
         accf = item["history"]["val_acc"][-1]
@@ -356,7 +358,7 @@ def analyze_results(results):
             f"train_error={item['train_error']}"
         )
 
-    print("\n========== �������Ż�ʱ��ԭ����� ==========")
+    print("\n========== 优化效果不足时的原因分析 ==========")
     for name, item in results.items():
         if name == "baseline":
             continue
@@ -365,18 +367,18 @@ def analyze_results(results):
         reasons = []
 
         if gain < max(0.03, base_gain * 0.6):
-            reasons.append("����������ڻ���ģ�ͣ��Ż�Ч��������")
+            reasons.append("参数量相对基线更少，但在当前设置下未带来更好的精度")
         if item["grad_coverage"] < 0.9:
-            reasons.append("�����ݶȸ�����ƫ�ͣ����ڼ���ͼ�Ͽ�����")
+            reasons.append("梯度覆盖率偏低，说明部分路径未充分参与反向传播")
         if item["train_error"] is not None:
-            reasons.append("ѵ�������г����쳣��˵���þ����ķ���ʵ������ȱ��")
+            reasons.append("训练过程中出现异常，说明该结构的实现仍需检查")
         if item["params"] < base["params"] and item["history"]["val_acc"][-1] < base["history"]["val_acc"][-1]:
-            reasons.append("���������٣���ǰ�ִ��¿���Ƿ���")
+            reasons.append("参数更少但精度更低，当前任务规模可能不足以体现优势")
 
         if not reasons:
-            reasons.append("����ʵ�����������Ż�Ч��")
+            reasons.append("当前实验设置下未显现明显优化效果")
 
-        print(f"- {name}: " + "��".join(reasons))
+        print(f"- {name}: " + "；".join(reasons))
 
 
 def main():
@@ -400,7 +402,7 @@ def main():
     results = {}
 
     for name, factory in model_factories.items():
-        print(f"\n[RUN] training {name} model...")
+        print(f"\n[RUN] 训练 {name} 模型...")
         model = factory(num_classes=10)
         gc = grad_coverage(model, x_train[:64], y_train[:64])
         history, train_error = train_model(model, train_loader, x_test, y_test, epochs=3, lr=1e-3)
@@ -419,8 +421,8 @@ def main():
     save_csv(results, out_csv)
     analyze_results(results)
 
-    print(f"\n[ARTIFACT] plot saved: {out_png}")
-    print(f"[ARTIFACT] csv  saved: {out_csv}")
+    print(f"\n[ARTIFACT] 图像已保存: {out_png}")
+    print(f"[ARTIFACT] CSV 已保存: {out_csv}")
 
 
 if __name__ == "__main__":
