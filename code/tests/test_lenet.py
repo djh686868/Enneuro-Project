@@ -138,6 +138,8 @@ class SimpleDataLoader:
         # 按批次生成数据
         for i in range(0, len(indices), self.batch_size):
             batch_indices = indices[i:i + self.batch_size]
+            if len(batch_indices) != self.batch_size:
+                break
             
             # 收集批次数据
             batch_x = []
@@ -162,6 +164,7 @@ class LeNet(Module):
     
     def __init__(self, num_classes=10, input_channels=1, input_size=28):
         super().__init__()
+        self.executor = None
         
         # 导入必要的模块
         from eneuro.nn.module import Conv2d, Linear
@@ -180,7 +183,7 @@ class LeNet(Module):
         fc_input_dim = 16 * feature_size * feature_size
         
         # 全连接层
-        self.fc1 = Linear(120)                   # 输入: fc_input_dim, 输出: 120
+        self.fc1 = Linear(120,in_size=fc_input_dim)                   # 输入: fc_input_dim, 输出: 120
         self.fc2 = Linear(84)                    # 输入: 120, 输出: 84
         self.fc3 = Linear(num_classes)           # 输入: 84, 输出: num_classes
         
@@ -203,12 +206,12 @@ class LeNet(Module):
     def forward(self, x):
         # 第一卷积块: Conv -> Sigmoid -> MaxPool
         x = self.conv1(x)
-        x = self.F.sigmoid(x)
+        x = self.F.relu(x)
         x = self.F.pooling(x, 2, 2, visualize=True)  # kernel_size=2, stride=2
         
         # 第二卷积块: Conv -> Sigmoid -> MaxPool
         x = self.conv2(x)
-        x = self.F.sigmoid(x)
+        x = self.F.relu(x)
         x = self.F.pooling(x, 2, 2)  # kernel_size=2, stride=2
         
         # 展平特征图
@@ -221,7 +224,12 @@ class LeNet(Module):
         
         return x
     
+    def rigister_executor(self, executor):
+        self.executor = executor
+
     def __call__(self, x):
+        if self.executor is not None:
+            return self.executor.forward(x)
         return self.forward(x)
     
     def params(self):
@@ -244,7 +252,7 @@ def train_lenet_local_fixed():
     print("开始使用本地MNIST文件训练LeNet...")
     
     # 1. 加载数据
-    data_dir = "D:\\eneuro\\Enneuro-Project\\code\\testdata\\MNIST_data"
+    data_dir = "D:\\gzs\\gitHub\\Enneuro-Project\\code\\tests\\testdata\\MNIST_data"
     pkl_path = Path(data_dir) / "mnist.pkl"
     
     if pkl_path.exists():
@@ -283,7 +291,16 @@ def train_lenet_local_fixed():
         input_channels=input_channels, 
         input_size=input_size
     )
-    
+    '''
+    from eneuro.ao import GraphOptimizer
+    for batch_idx, (Xb, yb) in enumerate(train_loader):
+        GraphOptimizer(model, Xb).origin_graph().visualize('origin_graph.dot')
+        GraphOptimizer(model, Xb).optimize().visualize('optimized_graph.dot')
+
+        excutor = GraphOptimizer(model, Xb).optimize_to_executor()
+        model.rigister_executor(excutor)
+        break
+    #'''
     print(f"\nLeNet模型信息:")
     print(f"输入尺寸: {input_channels}x{input_size}x{input_size}")
     print(f"输出类别: 10")
@@ -324,7 +341,7 @@ def train_lenet_local_fixed():
     # from eneuro.global_config import VISUAL_CONFIG
     # VISUAL_CONFIG["ENABLE_ALL_LAYERS"] = True  # 修改字典的值，所有模块都能读到
     from eneuro.global_config import visualize_model_first_batch
-    visualize_model_first_batch(model, test_loader)
+    #visualize_model_first_batch(model, test_loader)
 
     print("\n最终评估...")
     evaluator = Evaluator(model, loss_fn, visualizer)

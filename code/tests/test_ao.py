@@ -63,7 +63,7 @@ def test_executor(epoch_num = 10):
     with trace_context() as tracer:
         _ = model(sample_input)
         graph = tracer.get_graph()
-    #graph.visualize('my_graph.dot')
+    graph.visualize('origin_graph.dot')
     executor = GraphExecutor(graph)
 
     # 创建损失函数和优化器
@@ -85,15 +85,17 @@ def test_executor(epoch_num = 10):
     return duration
 
 def test_ao(epoch_num = 10):
+
+    from eneuro.ao import GraphOptimizer
     # 创建模型
     model = Sequential(*sequential_content)
 
     # 执行一次前向，记录并优化计算图（得到优化后的 executor）
-    sample_input = Tensor(X)
-    op = GraphOptimizer(model, sample_input)
-    #graph = op.optimize()
-    #graph.visualize()
-    executor = op.optimize_to_executor()
+    sample_input = Tensor(X) # 样例输入
+    op = GraphOptimizer(model, sample_input) # 图优化器
+    graph = op.optimize() # 优化后的图
+    graph.visualize('optimized_graph.dot') # 保存为.dot文件便于查看
+    executor = op.optimize_to_executor() # 优化后的执行器
 
     # 创建损失函数和优化器
     loss_fn = CrossEntropyLoss()
@@ -101,20 +103,18 @@ def test_ao(epoch_num = 10):
     
     tic = time.time()
     for epoch in range(epoch_num):
-        #print(f"epoch {epoch}")
-        y_hat = executor.forward(Tensor(X))
+        y_hat = executor.forward(Tensor(X)) # 使用执行器进行前向传播
 
         loss = loss_fn(y_hat, Tensor(y))
-        loss.backward()
+        loss.backward() # 正常反向传播
 
         optimizer.step()
     toc = time.time()
     duration = toc - tic
 
-    save_checkpoint(model, optimizer, num_epoch, "ao_checkpoint.json")
-
-    print(f"last y_hat = {y_hat}")
+    save_checkpoint(model, optimizer, num_epoch, "ao_checkpoint.json") # 正常保存
     print(f"ao training complete in {duration:.4f}s  loss = {loss}")
+    
     return duration
 
 def test_load_normal(path, epoch_num = 10):
@@ -190,13 +190,28 @@ def test_load_ao(path,epoch_num = 10):
     print(f"load ao training complete in {duration:.4f}s  loss = {loss}")
     return duration
 
+def pattern_registry():
+    from eneuro.ao import FusionRegistry,FusionPattern,NodeMatcher
+
+    # 自定义匹配模式
+    fusion_pattern = FusionPattern(
+        name="conv_relu",
+        node_matchers=[
+            NodeMatcher(func_type=F.Conv2d),
+            NodeMatcher(func_type=F.ReLU),
+        ]
+    )
+
+    # 注册模式与替换的融合算子
+    FusionRegistry.register(fusion_pattern, F.FusedConvReLU)
+
 if __name__ == "__main__":
     num_epoch = 100
     normal_time = test_normal(num_epoch)
     executor_time = test_executor(num_epoch)
     ao_time = test_ao(num_epoch)
 
-    '''
+    #'''
     sub = normal_time - ao_time
     print(f"normal training complete in {normal_time:.4f}s")
     print(f"executor training complete in {executor_time:.4f}s")
