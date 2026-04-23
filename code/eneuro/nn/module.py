@@ -208,7 +208,7 @@ class Conv2d(Layer):
 # 转置卷积层
 class Deconv2d(Layer):
     def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None, visualize=False):
+                 pad=0, dilation=1, nobias=False, dtype=np.float32, in_channels=None, visualize=False):
   
         super().__init__()
         self.in_channels = in_channels
@@ -216,6 +216,7 @@ class Deconv2d(Layer):
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
+        self.dilation = dilation
         self.dtype = dtype
         self.visualize = visualize
 
@@ -240,7 +241,7 @@ class Deconv2d(Layer):
             self.in_channels = x.shape[1]
             self._init_W()
 
-        y = deconv2d(x, self.W, self.b, self.stride, self.pad, visualize=self.visualize)
+        y = deconv2d(x, self.W, self.b, self.stride, self.pad, dilation=self.dilation, visualize=self.visualize)
         return y
 
 from ..base import Config
