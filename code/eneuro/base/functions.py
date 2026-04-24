@@ -76,6 +76,7 @@ def reshape(x, shape):
 
 class Transpose(Function):
     def __init__(self,axes = None):
+        super().__init__()
         self.axes = axes
     def forward(self,*xs):
         xs=xs[0]
@@ -172,9 +173,11 @@ def sum (x,axis = None,keepdims = False):
 
 class Mean(Function):
     def __init__ (self,axis,keepdims,visualize=False):
+        super().__init__()
         self.axis = axis
         self.keepdims = keepdims
         self.visualize = visualize
+
     def forward (self,*xs):
         xs=xs[0]
         self.x_shape = xs.shape
@@ -239,6 +242,7 @@ def sum_to(x, shape):
 
 class BroadcastTo(Function):
     def __init__ (self,shape,visualize=False):
+        super().__init__()
         self.visualize = visualize
         self.shape = shape
     def forward (self,*xs):
@@ -263,6 +267,9 @@ def average(x, axis=None, keepdims=False):
 
 
 class MatMul(Function):
+    def __init__(self):
+        super().__init__()
+
     def forward(self, *xs):
         x = xs[0]
         W = xs[1]
@@ -284,6 +291,7 @@ def matmul(x, W):
 class Linear(Function):
     def forward(self,*xs):
         x = xs[0]
+        #print(f"x.dtype = {x.dtype}")
         w = xs[1]
         b = xs[2]
         y = x.dot(w)
@@ -323,6 +331,7 @@ def sigmoid(x):
 class ReLU(Function):
     def forward(self, *xs):
         x = xs[0]
+        #print(f"x.dtype = {x.dtype}")
         y = np.maximum(x, 0.0)
         return y
 
@@ -338,6 +347,7 @@ def relu(x):
 
 class Softmax(Function):
     def __init__(self, axis=1,visualize=False):
+        super().__init__()
         self.axis = axis
         self.visualize = visualize
 
@@ -576,9 +586,9 @@ class Conv2d(Function):
         self.dilation = pair(dilation)
         self.visualize = visualize
 
-
     def forward(self, *xs):
         x = xs[0]
+        #print(f"x.dtype = {x.dtype}")
         W = xs[1]
         b = xs[2]
         KH, KW = W.shape[2:]
@@ -955,9 +965,6 @@ def average_pooling(x, kernel_size, stride=1, pad=0):
     return AveragePooling(kernel_size, stride, pad)(x)
 
 class GlobalAveragePooling(Function):
-    def __init__(self):
-        super().__init__()
-    
     def forward(self, *xs):
         x = xs[0]
         self.input_shape = x.shape
@@ -1114,6 +1121,7 @@ class BatchNorm2d(Function):
         # x: (N, C, H, W)
         # gamma, beta: (C,)
         x, gamma, beta = xs
+        #print(f"x.dtype = {x.dtype}")
         N, C, H, W = x.shape
         self.x_shape = x.shape
         self.x = x
@@ -1250,7 +1258,8 @@ class FusedConvBNReLU(Function):
     前向：卷积 → 批量归一化 → ReLU
     反向：ReLU 梯度 → BN 梯度 → 卷积梯度
     """
-    def __init__(self, stride=(1,1), pad=(0,0), dilation=(1,1), running_mean=None, running_var=None, momentum=0.9, eps=1e-5, visualize=False):
+    def __init__(self, stride=(1,1), pad=(0,0), dilation=(1,1),
+                  running_mean=None, running_var=None, momentum=0.9, eps=1e-5, visualize=False):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
@@ -1296,9 +1305,9 @@ class FusedConvBNReLU(Function):
             v = var.reshape(OC)
             
             if self.running_mean is None:
-                self.running_mean = Tensor(np.zeros(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+                self.running_mean = Tensor(np.zeros(OC, dtype=x.data.dtype), requires_grad=False, name='running_mean')
             if self.running_var is None:
-                self.running_var = Tensor(np.ones(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+                self.running_var = Tensor(np.ones(OC, dtype=x.data.dtype), requires_grad=False, name='running_mean')
 
             self.running_mean.data = self.momentum * self.running_mean.data + (1 - self.momentum) * m
             self.running_var.data  = self.momentum * self.running_var.data  + (1 - self.momentum) * v
@@ -1307,9 +1316,9 @@ class FusedConvBNReLU(Function):
         else:
             # 测试模式：使用 running 统计量
             if self.running_mean is None:
-                self.running_mean = Tensor(np.zeros(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+                self.running_mean = Tensor(np.zeros(OC, dtype=x.data.dtype), requires_grad=False, name='running_mean')
             if self.running_var is None:
-                self.running_var = Tensor(np.ones(OC, dtype=np.float32), requires_grad=False, name='running_mean')
+                self.running_var = Tensor(np.ones(OC, dtype=x.data.dtype), requires_grad=False, name='running_mean')
 
             mean = self.running_mean.data.reshape(1, OC, 1, 1)
             var = self.running_var.data.reshape(1, OC, 1, 1)
@@ -1394,3 +1403,65 @@ class FusedConvBNReLU(Function):
     
 def fused_conv_bn_relu(x, W, b, gamma, beta, running_mean, running_var, stride=1, pad=0, dilation=1, momentum=0.9, eps=1e-5, visualize=False):
     return FusedConvBNReLU(stride, pad, dilation, running_mean, running_var, momentum, eps, visualize)(x, W, b, gamma, beta)
+
+class CastRigistry:
+    '''
+    注册自动精度
+    resist_cast: 从Config.current_dtype提高到np.float32
+    cancast: 降低精度至Config.current_dtype (一般是np.float16)
+    '''
+    cancast = [
+        Tanh,
+        MatMul,
+        Linear,
+        Sigmoid,
+        ReLU,
+        Conv2d,
+        GroupedConv2d,
+        Deconv2d,
+        Pooling,
+        AveragePooling,
+        GlobalAveragePooling,
+        FusedConvReLU
+    ]
+
+    resist_cast = [
+        Sin,
+        Cos,
+        Exp,
+        Log,
+        Mean,
+        Softmax,
+        BatchNorm2d,
+        FusedConvBNReLU
+    ]
+
+class Cast(Function):
+    def forward(self, *xs):
+        # 降低精度
+        current_dtype = Config.current_dtype
+        xs = [x.astype(current_dtype) if x.dtype != current_dtype 
+                  else x 
+                  for x in xs]
+        return tuple(xs)
+
+    def backward(self, gys):
+        return gys
+
+def cast(x):
+    return Cast()(*x)
+
+class DeCast(Function):
+    def forward(self, *xs):
+        # 提高精度
+        current_dtype = Config.current_dtype
+        xs = [x.astype(np.float32) if x.dtype == current_dtype 
+                  else x 
+                  for x in xs]
+        return tuple(xs)
+
+    def backward(self, gys):
+        return gys
+
+def decast(x):
+    return DeCast()(*x)
