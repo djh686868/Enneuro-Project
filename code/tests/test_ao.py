@@ -43,8 +43,9 @@ def test_normal(epoch_num = 10):
     for epoch in range(epoch_num):
         #print(f"epoch {epoch}")
         y_hat = model(Tensor(X))
-
         loss = loss_fn(y_hat, Tensor(y))
+
+        model.cleargrads()
         loss.backward()
 
         optimizer.step()
@@ -219,10 +220,13 @@ def test_autocast_normal(epoch_num = 10):
     tic = time.time()
     for epoch in range(epoch_num):
         #print(f"epoch {epoch}")
+        #from eneuro.ao import autocast_context, GradScaler
+        #scaler = GradScaler()
         with autocast_context():
             y_hat = model(Tensor(X))
             loss = loss_fn(y_hat, Tensor(y))
 
+        model.cleargrads()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
 

@@ -12,7 +12,8 @@ def autocast_context(dtype = np.float16):
     上下文管理器：在此上下文中自动启用混合精度。
     用法：
         with autocast_context(np.float16):
-            trainer.fit()
+            y_hat = model(Tensor(X))
+            loss = loss_fn(y_hat, Tensor(y))
     """
     old_autocast_flag = Config.autocast
     old_dtype = Config.current_dtype

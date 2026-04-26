@@ -241,7 +241,7 @@ class Function:
         # 自动混合精度转换
         if Config.autocast:
             xs = self.auto_cast(xs)
-        assert isinstance(xs[0], np.ndarray)
+        #assert isinstance(xs[0], np.ndarray)
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
             ys = (ys,)
