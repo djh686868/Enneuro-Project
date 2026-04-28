@@ -284,19 +284,19 @@ class BatchNorm(Layer):
         return y
 
 class BatchNorm2d(Layer):
-    def __init__(self, out_channels, momentum=0.9, eps=1e-5):
+    def __init__(self, out_channels, momentum=0.9, eps=1e-5, dtype=np.float32):
         super().__init__()
         self.out_channels = out_channels
         self.momentum = momentum
         self.eps = eps
 
         # 可训练参数 γ 和 β
-        self.gamma = Parameter(np.ones(out_channels, dtype=np.float32), name='gamma')
-        self.beta  = Parameter(np.zeros(out_channels, dtype=np.float32), name='beta')
+        self.gamma = Parameter(np.ones(out_channels, dtype=dtype), name='gamma')
+        self.beta  = Parameter(np.zeros(out_channels, dtype=dtype), name='beta')
         # 不可训练的运行统计量（仍用 Tensor 存储，但 requires_grad=False）
-        self.running_mean = Parameter(np.zeros(out_channels, dtype=np.float32), name='running_mean')
+        self.running_mean = Parameter(np.zeros(out_channels, dtype=dtype), name='running_mean')
         self.running_mean.requires_grad=False
-        self.running_var  = Parameter(np.ones(out_channels, dtype=np.float32), name='running_var')
+        self.running_var  = Parameter(np.ones(out_channels, dtype=dtype), name='running_var')
         self.running_var.requires_grad=False
 
     def forward(self, inputs):

@@ -1,5 +1,9 @@
 __all__ = []
 
+from .cast import autocast_context, GradScaler
+__all__.append('autocast_context')
+__all__.append('GradScaler')
+
 from .graphoptimizer import GraphOptimizer
 __all__.append('GraphOptimizer')
 
