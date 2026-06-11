@@ -91,6 +91,7 @@
     <div class="card">
       <h3>预置模型</h3>
       <div class="chip-row" id="presetChips"></div>
+      <div id="presetInfo"></div>
       <h3 style="margin-top:16px">自定义层（点击添加）</h3>
       <div class="chip-row">
         <span class="chip" onclick="addLayer('Conv2d',{out_channels:32,kernel_size:3,padding:1})">Conv2d</span>
@@ -244,17 +245,42 @@ async function checkApi() {
 let layers = []
 let selectedPreset = null
 
+const PRESET_GROUPS = {
+  '基础': ['MLP_3Layer', 'SimpleCNN'],
+  'LeNet': ['LeNet', 'LeNet_RGB'],
+  'AlexNet': ['AlexNet', 'AlexNet_Gray'],
+  'VGG': ['VGG11', 'VGG13', 'VGG16'],
+  'ResNet': ['ResNet18', 'ResNet18_Gray'],
+}
+
+let _allPresets = {}
+
 async function loadPresets() {
   const presets = await fetch(`${API}/models/presets`).then(r => r.json())
+  presets.forEach(p => { _allPresets[p.name] = p })
+
   const container = document.getElementById('presetChips')
   container.innerHTML = ''
-  presets.forEach(p => {
-    const chip = document.createElement('span')
-    chip.className = 'chip preset-chip'
-    chip.textContent = p.name
-    chip.onclick = () => selectPreset(p.name, chip)
-    container.appendChild(chip)
-  })
+
+  for (const [group, names] of Object.entries(PRESET_GROUPS)) {
+    const groupEl = document.createElement('div')
+    groupEl.style.cssText = 'width:100%;margin-top:10px;'
+    groupEl.innerHTML = `<div style="font-size:11px;color:#6e7681;text-transform:uppercase;
+                                     letter-spacing:.08em;margin-bottom:4px">${group}</div>`
+    container.appendChild(groupEl)
+
+    names.forEach(name => {
+      const p = _allPresets[name]
+      if (!p) return
+      const chip = document.createElement('span')
+      chip.className = 'chip preset-chip'
+      chip.textContent = name
+      chip.title = p.description || ''
+      chip.dataset.recommendedInput = p.recommended_input || ''
+      chip.onclick = () => selectPreset(name, chip)
+      container.appendChild(chip)
+    })
+  }
 }
 
 function selectPreset(name, el) {
@@ -263,6 +289,18 @@ function selectPreset(name, el) {
   renderLayerList()
   document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
   el.classList.add('selected')
+
+  const p = _allPresets[name] || {}
+  const infoEl = document.getElementById('presetInfo')
+  if (infoEl) {
+    infoEl.innerHTML = p.description
+      ? `<div class="info-box" style="margin-top:8px">
+           <strong>${name}</strong><br>
+           ${p.description}<br>
+           <span style="color:#8b949e">推荐输入：${p.recommended_input || '—'}</span>
+         </div>`
+      : ''
+  }
 }
 
 function addLayer(type, params) {

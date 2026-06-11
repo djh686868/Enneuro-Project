@@ -623,7 +623,7 @@ class ResidualBlock(Module):
         else:
             self.conv3 = None
         self.downsample = downsample
-    
+
     def forward(self, x):
         x = x.to(self.device)
         y = self.relu(self.bn1(self.conv1(x)))
@@ -632,3 +632,168 @@ class ResidualBlock(Module):
             x = self.conv3(x)
         y = self.relu(x + y)
         return y
+
+
+# ─── 经典网络架构 ────────────────────────────────────────────────────────────
+
+class LeNet(Module):
+    """
+    LeNet-5 变体。
+    原始 LeNet-5 面向 32×32 单通道输入（10 类），
+    这里支持自定义 in_channels 和 num_classes。
+    输入尺寸建议 ≥ 16×16。
+    """
+    def __init__(self, in_channels=1, num_classes=10):
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+
+        self.conv1 = Conv2d(6,  kernel_size=5, pad=2, in_channels=in_channels)
+        self.conv2 = Conv2d(16, kernel_size=5, pad=0)
+        self.fc1   = Linear(120)
+        self.fc2   = Linear(84)
+        self.fc3   = Linear(num_classes)
+
+    def forward(self, x):
+        x = x.to(self.device)
+        x = F.Pooling(kernel_size=2, stride=2)(relu(self.conv1(x)))
+        x = F.Pooling(kernel_size=2, stride=2)(relu(self.conv2(x)))
+        x = flatten(x)
+        x = relu(self.fc1(x))
+        x = relu(self.fc2(x))
+        return self.fc3(x)
+
+
+class AlexNet(Module):
+    """
+    AlexNet 轻量适配版。
+    原始 AlexNet 面向 224×224，本版本对 32×32～224×224 均可运行：
+      - 使用 3×3 卷积代替部分 11×11 卷积以兼容小输入
+      - 全连接层缩减至 1024，保持参数量合理
+    推荐输入尺寸：64×64 及以上以充分体现分层特征提取。
+    """
+    def __init__(self, in_channels=3, num_classes=10):
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+
+        # 特征提取
+        self.conv1 = Conv2d(64,  kernel_size=3, stride=1, pad=1, in_channels=in_channels)
+        self.conv2 = Conv2d(192, kernel_size=3, pad=1)
+        self.conv3 = Conv2d(384, kernel_size=3, pad=1)
+        self.conv4 = Conv2d(256, kernel_size=3, pad=1)
+        self.conv5 = Conv2d(256, kernel_size=3, pad=1)
+        # 全连接
+        self.fc1 = Linear(1024)
+        self.fc2 = Linear(512)
+        self.fc3 = Linear(num_classes)
+
+    def forward(self, x):
+        x = x.to(self.device)
+        x = F.Pooling(kernel_size=2, stride=2)(relu(self.conv1(x)))
+        x = F.Pooling(kernel_size=2, stride=2)(relu(self.conv2(x)))
+        x = relu(self.conv3(x))
+        x = relu(self.conv4(x))
+        x = F.Pooling(kernel_size=2, stride=2)(relu(self.conv5(x)))
+        x = flatten(x)
+        x = relu(self.fc1(x))
+        x = relu(self.fc2(x))
+        return self.fc3(x)
+
+
+class VGG(Module):
+    """
+    VGG 系列网络。通过 cfg 参数选择变体：
+      - 'VGG11'：每阶段 1 个卷积
+      - 'VGG13'：每阶段 2 个卷积（前两阶段 2 层）
+      - 'VGG16'：标准 VGG16 配置
+    推荐输入尺寸：32×32 以上。全连接层宽度自适应输入大小。
+    """
+    CONFIGS = {
+        'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+        'VGG13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+        'VGG16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
+    }
+
+    def __init__(self, cfg='VGG11', in_channels=3, num_classes=10):
+        super().__init__()
+        self.cfg_name   = cfg
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+
+        layer_cfg = self.CONFIGS[cfg]
+        self._conv_layers = []
+        c_in = in_channels
+        for i, v in enumerate(layer_cfg):
+            if v == 'M':
+                self._conv_layers.append(('pool', None))
+            else:
+                conv = Conv2d(v, kernel_size=3, pad=1, in_channels=c_in)
+                bn   = BatchNorm2d(v)
+                setattr(self, f'conv_{i}', conv)
+                setattr(self, f'bn_{i}',   bn)
+                self._conv_layers.append(('conv_bn_relu', (f'conv_{i}', f'bn_{i}')))
+                c_in = v
+
+        self.fc1 = Linear(512)
+        self.fc2 = Linear(num_classes)
+
+    def forward(self, x):
+        x = x.to(self.device)
+        for kind, meta in self._conv_layers:
+            if kind == 'pool':
+                x = F.Pooling(kernel_size=2, stride=2)(x)
+            else:
+                conv_name, bn_name = meta
+                x = relu(getattr(self, bn_name)(getattr(self, conv_name)(x)))
+        x = flatten(x)
+        x = relu(self.fc1(x))
+        return self.fc2(x)
+
+
+class ResNet18(Module):
+    """
+    ResNet-18：使用框架内置 ResidualBlock 组建的 18 层残差网络。
+    适配小输入（如 32×32）：首层改用 3×3 卷积（stride=1），去掉 MaxPool，
+    全局平均池化替代固定大小全连接展平。
+    """
+    def __init__(self, in_channels=3, num_classes=10):
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+
+        # stem（小输入适配：3×3 conv + stride=1，无 MaxPool）
+        self.stem_conv = Conv2d(64, kernel_size=3, stride=1, pad=1, in_channels=in_channels)
+        self.stem_bn   = BatchNorm2d(64)
+
+        # layer1: 2 × ResBlock(64→64, stride=1)
+        self.l1a = ResidualBlock(64,  64,  stride=1, downsample=False)
+        self.l1b = ResidualBlock(64,  64,  stride=1, downsample=False)
+
+        # layer2: 2 × ResBlock(64→128, stride=2)
+        self.l2a = ResidualBlock(64,  128, stride=2, downsample=True)
+        self.l2b = ResidualBlock(128, 128, stride=1, downsample=False)
+
+        # layer3: 2 × ResBlock(128→256, stride=2)
+        self.l3a = ResidualBlock(128, 256, stride=2, downsample=True)
+        self.l3b = ResidualBlock(256, 256, stride=1, downsample=False)
+
+        # layer4: 2 × ResBlock(256→512, stride=2)
+        self.l4a = ResidualBlock(256, 512, stride=2, downsample=True)
+        self.l4b = ResidualBlock(512, 512, stride=1, downsample=False)
+
+        self.fc = Linear(num_classes)
+
+    def forward(self, x):
+        x = x.to(self.device)
+        # stem
+        x = relu(self.stem_bn(self.stem_conv(x)))
+        # residual stages
+        x = self.l1b(self.l1a(x))
+        x = self.l2b(self.l2a(x))
+        x = self.l3b(self.l3a(x))
+        x = self.l4b(self.l4a(x))
+        # global average pool → flatten → fc
+        x = F.global_average_pooling(x)   # (N, 512, 1, 1)
+        x = flatten(x)                     # (N, 512)
+        return self.fc(x)
