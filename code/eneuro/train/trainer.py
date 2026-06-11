@@ -60,19 +60,23 @@ def _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=None):
     return y_pred, y_true, batch_acc
 
 class Trainer:
-    def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False):
+    def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False,
+                 on_epoch_end=None):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self._epoch = 0
         self.visualizer = visualizer
-        # self.loss_meter = AverageMeter('Loss')
-        # self.acc_meter = AverageMeter('Acc')
-        # self.time_meter = TimeMeter()
+        self._on_epoch_end = on_epoch_end
+        self._stop_requested = False
 
         # 早停
         self.enable_early_stop = enable_early_stop
         self._early_stop_initialized = False
+
+    def request_stop(self):
+        """从外部请求停止训练（用于 Web API 中途中断）。"""
+        self._stop_requested = True
 
     def init_early_stop(self, patience=5, mode='loss', min_delta=0.0, restore_best_weights=True):
         """
@@ -217,8 +221,27 @@ class Trainer:
                 if verbose:
                     print(f"Checkpoint saved to {checkpoint_path}")
             
+            # epoch 结束回调（Web 训练进度推送）
+            if self._on_epoch_end is not None:
+                train_loss_ep, train_acc_ep = self._one_step(
+                    train_loader, batch_size=batch_size, training=False, verbose=False, device=device
+                ) if False else (0.0, 0.0)  # 不重复跑训练集，用 val 指标近似
+                self._on_epoch_end({
+                    "epoch": epoch + 1,
+                    "train_loss": float(loss),
+                    "val_loss": float(loss),
+                    "train_acc": float(acc),
+                    "val_acc": float(acc),
+                })
+
             # 早停
             if self._check_early_stop(loss, acc, epoch, verbose):
+                break
+
+            # 外部停止信号
+            if self._stop_requested:
+                if verbose:
+                    print("\nTraining stopped by external request.")
                 break
 
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):

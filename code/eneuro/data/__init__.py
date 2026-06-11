@@ -6,5 +6,8 @@ __all__.append('Dataset')
 from .dataloader import DataLoader
 __all__.append('DataLoader')
 
-from .dataloader import AsyncDataLoader
-__all__.append('AsyncDataLoader')
+try:
+    from .dataloader import AsyncDataLoader
+    __all__.append('AsyncDataLoader')
+except ImportError:
+    pass

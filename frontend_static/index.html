@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EnNeuro Web 可视化平台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+  nav { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px;
+        display: flex; align-items: center; gap: 24px; }
+  nav h1 { font-size: 18px; color: #58a6ff; font-weight: 700; margin-right: 16px; }
+  nav a { color: #8b949e; text-decoration: none; font-size: 14px; padding: 6px 12px;
+          border-radius: 6px; cursor: pointer; }
+  nav a.active, nav a:hover { background: #21262d; color: #e6edf3; }
+  .page { display: none; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .page.active { display: block; }
+  h2 { font-size: 20px; margin-bottom: 20px; color: #f0f6fc; }
+  h3 { font-size: 15px; margin-bottom: 12px; color: #8b949e; font-weight: 500; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .form-row label { font-size: 12px; color: #8b949e; }
+  .form-row input, .form-row select {
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 6px; padding: 8px 10px; font-size: 13px; width: 100%;
+  }
+  .form-row input:focus, .form-row select:focus { outline: none; border-color: #58a6ff; }
+  .btn { padding: 8px 18px; background: #238636; color: #fff; border: none;
+         border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn:hover { background: #2ea043; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { background: #da3633; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-blue { background: #1f6feb; }
+  .btn-blue:hover { background: #388bfd; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-running  { background: #0d4a2d; color: #3fb950; }
+  .badge-finished { background: #0d2a5c; color: #58a6ff; }
+  .badge-stopped  { background: #2d333b; color: #8b949e; }
+  .badge-error    { background: #4a0d1a; color: #f85149; }
+  .badge-idle     { background: #21262d; color: #8b949e; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .mono { font-family: monospace; background: #0d1117; padding: 2px 6px;
+          border-radius: 4px; color: #79c0ff; font-size: 12px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chip { padding: 4px 10px; border: 1px solid #30363d; border-radius: 16px;
+          font-size: 12px; cursor: pointer; color: #8b949e; }
+  .chip:hover, .chip.selected { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .preset-chip { border-color: #58a6ff; color: #58a6ff; }
+  .preset-chip:hover, .preset-chip.selected { background: #0d2a5c; }
+  .layer-list { list-style: none; }
+  .layer-list li { background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+                   padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+                   display: flex; justify-content: space-between; align-items: center; }
+  .layer-list li .ltype { color: #79c0ff; font-weight: 600; }
+  .layer-list li .lparams { color: #8b949e; font-size: 11px; font-family: monospace; }
+  .img-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .img-grid figure { margin: 0; text-align: center; }
+  .img-grid img { border-radius: 4px; display: block; }
+  .img-grid figcaption { font-size: 10px; color: #8b949e; margin-top: 2px; }
+  .result-imgs { display: flex; gap: 16px; flex-wrap: wrap; }
+  .result-imgs figure { margin: 0; text-align: center; }
+  .result-imgs img { max-height: 240px; border-radius: 8px; border: 1px solid #30363d; }
+  .result-imgs figcaption { font-size: 12px; color: #8b949e; margin-top: 4px; }
+  #chartLoss, #chartAcc { width: 100%; height: 280px; border-radius: 8px; }
+  .info-box { background: #0d2a5c; border: 1px solid #1f6feb; border-radius: 8px;
+              padding: 12px 16px; font-size: 13px; color: #79c0ff; margin-bottom: 12px; }
+  .error-box { background: #4a0d1a; border: 1px solid #da3633; border-radius: 8px;
+               padding: 12px 16px; font-size: 13px; color: #f85149; margin-bottom: 12px; }
+  .flex-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .flex-1 { flex: 1; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>⚡ EnNeuro</h1>
+  <a class="active" onclick="showPage('designer', this)">模型设计</a>
+  <a onclick="showPage('datasets', this)">数据集</a>
+  <a onclick="showPage('training', this)">训练控制台</a>
+  <a onclick="showPage('visual', this)">可视化</a>
+  <span style="margin-left:auto;font-size:12px;color:#8b949e" id="apiStatus">连接中…</span>
+</nav>
+
+<!-- ======== 模型设计 ======== -->
+<div class="page active" id="page-designer">
+  <h2>模型设计</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>预置模型</h3>
+      <div class="chip-row" id="presetChips"></div>
+      <h3 style="margin-top:16px">自定义层（点击添加）</h3>
+      <div class="chip-row">
+        <span class="chip" onclick="addLayer('Conv2d',{out_channels:32,kernel_size:3,padding:1})">Conv2d</span>
+        <span class="chip" onclick="addLayer('BatchNorm2d',{})">BatchNorm2d</span>
+        <span class="chip" onclick="addLayer('Linear',{out_size:128})">Linear</span>
+      </div>
+      <ul class="layer-list" id="layerList"></ul>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-blue" onclick="buildModel()">构建模型</button>
+        <button class="btn" style="background:#21262d" onclick="clearLayers()">清空</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>已构建模型</h3>
+      <div id="builtModelInfo" style="color:#8b949e;font-size:13px">尚未构建模型</div>
+      <div id="modelList" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== 数据集 ======== -->
+<div class="page" id="page-datasets">
+  <h2>数据集管理</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>注册本地数据集</h3>
+      <div class="form-row"><label>数据集名称</label><input id="dsName" placeholder="donkey_test" /></div>
+      <div class="form-row"><label>本地路径（服务器端）</label><input id="dsPath" placeholder="D:/path/to/dataset" /></div>
+      <div class="form-row"><label>描述（可选）</label><input id="dsDesc" /></div>
+      <button class="btn" onclick="registerDataset()">注册</button>
+      <div id="dsRegResult" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>数据集列表</h3>
+      <button class="btn btn-blue" onclick="loadDatasets()" style="margin-bottom:12px">刷新</button>
+      <div id="datasetList" style="color:#8b949e;font-size:13px">点击刷新加载</div>
+    </div>
+  </div>
+  <div class="card" id="dsPreviewCard" style="display:none">
+    <h3>数据集预览 <span id="dsPreviewTitle"></span></h3>
+    <div class="img-grid" id="dsPreviewGrid"></div>
+  </div>
+</div>
+
+<!-- ======== 训练控制台 ======== -->
+<div class="page" id="page-training">
+  <h2>训练控制台</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>训练配置</h3>
+      <div class="form-row"><label>Model ID</label><input id="trModelId" placeholder="从模型设计复制" /></div>
+      <div class="form-row"><label>Dataset ID</label><input id="trDatasetId" placeholder="从数据集列表复制" /></div>
+      <div class="flex-row">
+        <div class="form-row flex-1"><label>Epochs</label><input id="trEpochs" type="number" value="5" min="1" /></div>
+        <div class="form-row flex-1"><label>Batch Size</label><input id="trBatch" type="number" value="32" /></div>
+      </div>
+      <div class="flex-row">
+        <div class="form-row flex-1"><label>Learning Rate</label><input id="trLr" type="number" value="0.001" step="0.0001" /></div>
+        <div class="form-row flex-1">
+          <label>Optimizer</label>
+          <select id="trOptim">
+            <option value="adam">Adam</option>
+            <option value="sgd">SGD</option>
+            <option value="momentum_sgd">Momentum SGD</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex-row">
+        <div class="form-row flex-1">
+          <label>Device</label>
+          <select id="trDevice"><option value="cpu">CPU</option><option value="cuda">CUDA</option></select>
+        </div>
+        <div class="form-row flex-1"><label>Val Split</label><input id="trValSplit" type="number" value="0.2" step="0.05" /></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn" id="btnStart" onclick="startTraining()">开始训练</button>
+        <button class="btn btn-danger" id="btnStop" onclick="stopTraining()" disabled>停止</button>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <span id="trStatus" class="badge badge-idle">idle</span>
+        <span id="trTaskId" style="font-size:12px;color:#8b949e"></span>
+      </div>
+      <div id="trError" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>训练曲线</h3>
+      <div id="chartLoss"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>准确率曲线</h3>
+    <div id="chartAcc"></div>
+  </div>
+</div>
+
+<!-- ======== 可视化 ======== -->
+<div class="page" id="page-visual">
+  <h2>推理可视化</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>输入配置</h3>
+      <div class="form-row"><label>Model ID</label><input id="visModelId" placeholder="从模型设计复制" /></div>
+      <div class="form-row"><label>目标层名称</label><input id="visLayer" placeholder="如 layer_0 或 conv1" /></div>
+      <div class="form-row">
+        <label>输入图像</label>
+        <input type="file" accept="image/*" onchange="onImageFile(event)" id="visFile" />
+      </div>
+      <div id="visPreview" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-blue" id="btnGradcam" onclick="doGradcam()" disabled>GradCAM</button>
+        <button class="btn" id="btnFeatMaps" onclick="doFeatureMaps()" disabled>特征图</button>
+      </div>
+      <div id="visError" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>GradCAM 结果</h3>
+      <div class="result-imgs" id="gradcamResult"><span style="color:#8b949e;font-size:13px">尚无结果</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>全通道特征图 <span id="featMapCount"></span></h3>
+    <div class="img-grid" id="featureMapsGrid"><span style="color:#8b949e;font-size:13px">尚无结果</span></div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000/api'
+
+// ===== 导航 =====
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'))
+  document.getElementById('page-' + name).classList.add('active')
+  el.classList.add('active')
+}
+
+// ===== API 状态检查 =====
+async function checkApi() {
+  try {
+    const r = await fetch('http://localhost:8000/ping')
+    const d = await r.json()
+    document.getElementById('apiStatus').textContent = '✓ API 已连接'
+    document.getElementById('apiStatus').style.color = '#3fb950'
+  } catch {
+    document.getElementById('apiStatus').textContent = '✗ API 未响应'
+    document.getElementById('apiStatus').style.color = '#f85149'
+  }
+}
+
+// ===== 模型设计 =====
+let layers = []
+let selectedPreset = null
+
+async function loadPresets() {
+  const presets = await fetch(`${API}/models/presets`).then(r => r.json())
+  const container = document.getElementById('presetChips')
+  container.innerHTML = ''
+  presets.forEach(p => {
+    const chip = document.createElement('span')
+    chip.className = 'chip preset-chip'
+    chip.textContent = p.name
+    chip.onclick = () => selectPreset(p.name, chip)
+    container.appendChild(chip)
+  })
+}
+
+function selectPreset(name, el) {
+  selectedPreset = name
+  layers = []
+  renderLayerList()
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  el.classList.add('selected')
+}
+
+function addLayer(type, params) {
+  selectedPreset = null
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  layers.push({ type, params: { ...params } })
+  renderLayerList()
+}
+
+function clearLayers() {
+  layers = []
+  selectedPreset = null
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  renderLayerList()
+}
+
+function renderLayerList() {
+  const ul = document.getElementById('layerList')
+  ul.innerHTML = ''
+  if (selectedPreset) {
+    ul.innerHTML = `<li><span class="ltype">[Preset]</span> <span class="lparams">${selectedPreset}</span></li>`
+    return
+  }
+  layers.forEach((l, i) => {
+    const li = document.createElement('li')
+    li.innerHTML = `<span><span class="ltype">${l.type}</span> <span class="lparams">${JSON.stringify(l.params)}</span></span>
+                    <span style="cursor:pointer;color:#f85149" onclick="removeLayer(${i})">✕</span>`
+    ul.appendChild(li)
+  })
+}
+
+function removeLayer(i) {
+  layers.splice(i, 1)
+  renderLayerList()
+}
+
+async function buildModel() {
+  let body
+  if (selectedPreset) {
+    body = { preset: selectedPreset }
+  } else if (layers.length > 0) {
+    body = { layers }
+  } else {
+    alert('请先选择预置模型或添加层')
+    return
+  }
+
+  try {
+    const r = await fetch(`${API}/models/build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json())
+
+    if (r.model_id) {
+      document.getElementById('builtModelInfo').innerHTML =
+        `✓ 构建成功！<br>model_id: <span class="mono">${r.model_id}</span><br>类型: ${r.model_type}<br>
+         <small style="color:#8b949e">复制 model_id 到训练/可视化页面使用</small>`
+      document.getElementById('trModelId').value = r.model_id
+      document.getElementById('visModelId').value = r.model_id
+      await loadModelList()
+    } else {
+      document.getElementById('builtModelInfo').innerHTML =
+        `<span style="color:#f85149">构建失败: ${JSON.stringify(r)}</span>`
+    }
+  } catch (e) {
+    document.getElementById('builtModelInfo').innerHTML =
+      `<span style="color:#f85149">请求失败: ${e.message}</span>`
+  }
+}
+
+async function loadModelList() {
+  const models = await fetch(`${API}/models`).then(r => r.json())
+  const div = document.getElementById('modelList')
+  if (!models.length) { div.innerHTML = '<span style="color:#8b949e;font-size:13px">暂无模型</span>'; return }
+  div.innerHTML = models.map(m =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;
+                 padding:6px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:13px">
+       <span class="mono">${m.model_id}</span>
+       <span style="color:#8b949e">${m.type}</span>
+     </div>`
+  ).join('')
+}
+
+// ===== 数据集 =====
+async function registerDataset() {
+  const name = document.getElementById('dsName').value.trim()
+  const path = document.getElementById('dsPath').value.trim()
+  const desc = document.getElementById('dsDesc').value.trim()
+  if (!name || !path) { alert('名称和路径必填'); return }
+
+  const r = await fetch(`${API}/datasets/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, path, description: desc }),
+  }).then(r => r.json())
+
+  if (r.dataset_id) {
+    document.getElementById('dsRegResult').innerHTML =
+      `✓ 注册成功！dataset_id: <span class="mono">${r.dataset_id}</span><br>
+       <button class="btn btn-blue" style="margin-top:6px;font-size:11px"
+         onclick="document.getElementById('trDatasetId').value='${r.dataset_id}'">
+         复制到训练配置
+       </button>`
+    loadDatasets()
+  } else {
+    document.getElementById('dsRegResult').innerHTML =
+      `<span style="color:#f85149">失败: ${JSON.stringify(r)}</span>`
+  }
+}
+
+let _datasetIds = []
+async function loadDatasets() {
+  const datasets = await fetch(`${API}/datasets`).then(r => r.json())
+  const div = document.getElementById('datasetList')
+  _datasetIds = datasets
+  if (!datasets.length) { div.innerHTML = '<span style="color:#8b949e;font-size:13px">暂无数据集</span>'; return }
+  div.innerHTML = datasets.map(d =>
+    `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;font-size:13px">
+       <div style="display:flex;justify-content:space-between">
+         <strong>${d.name}</strong>
+         <span class="mono">${d.dataset_id}</span>
+       </div>
+       <div style="color:#8b949e;font-size:11px;margin-top:2px">${d.path}</div>
+       <div style="margin-top:8px;display:flex;gap:6px">
+         <button class="btn btn-blue" style="font-size:11px;padding:4px 10px"
+           onclick="previewDataset('${d.dataset_id}','${d.name}')">预览</button>
+         <button class="btn" style="font-size:11px;padding:4px 10px;background:#21262d;border:1px solid #30363d"
+           onclick="document.getElementById('trDatasetId').value='${d.dataset_id}'">复制ID→训练</button>
+       </div>
+     </div>`
+  ).join('')
+}
+
+async function previewDataset(id, name) {
+  const card = document.getElementById('dsPreviewCard')
+  card.style.display = 'block'
+  document.getElementById('dsPreviewTitle').textContent = `— ${name}`
+  document.getElementById('dsPreviewGrid').innerHTML = '<span style="color:#8b949e">加载中…</span>'
+
+  const r = await fetch(`${API}/datasets/${id}/preview?n=12`).then(r => r.json())
+  const grid = document.getElementById('dsPreviewGrid')
+  if (!r.samples || !r.samples.length) {
+    grid.innerHTML = '<span style="color:#f85149">无法加载预览（检查路径格式）</span>'
+    return
+  }
+  grid.innerHTML = r.samples.map(s =>
+    `<figure>
+       <img src="data:image/png;base64,${s.image}" style="width:80px;height:80px;object-fit:cover" />
+       <figcaption>label: ${s.label}</figcaption>
+     </figure>`
+  ).join('')
+}
+
+// ===== 训练 =====
+let currentTaskId = null
+let eventSource = null
+let lossChart = null
+let accChart = null
+const lossData = { epochs: [], train: [], val: [] }
+const accData  = { epochs: [], train: [], val: [] }
+
+function initCharts() {
+  lossChart = echarts.init(document.getElementById('chartLoss'), 'dark')
+  accChart  = echarts.init(document.getElementById('chartAcc'),  'dark')
+  const baseOpt = (title, names) => ({
+    backgroundColor: 'transparent',
+    title: { text: title, textStyle: { color: '#8b949e', fontSize: 13 } },
+    tooltip: { trigger: 'axis' },
+    legend: { data: names, textStyle: { color: '#8b949e' } },
+    xAxis: { type: 'category', data: [], axisLine: { lineStyle: { color: '#30363d' } },
+             axisLabel: { color: '#8b949e' } },
+    yAxis: { type: 'value', axisLine: { lineStyle: { color: '#30363d' } },
+             axisLabel: { color: '#8b949e' }, splitLine: { lineStyle: { color: '#21262d' } } },
+    series: names.map((n, i) => ({
+      name: n, type: 'line', smooth: true, data: [],
+      lineStyle: { width: 2 },
+      itemStyle: { color: i === 0 ? '#58a6ff' : '#3fb950' },
+    })),
+    grid: { left: '8%', right: '4%', top: '14%', bottom: '10%' },
+  })
+  lossChart.setOption(baseOpt('Loss', ['Train Loss', 'Val Loss']))
+  accChart.setOption(baseOpt('Accuracy', ['Train Acc', 'Val Acc']))
+}
+
+async function startTraining() {
+  const body = {
+    model_id:   document.getElementById('trModelId').value.trim(),
+    dataset_id: document.getElementById('trDatasetId').value.trim(),
+    epochs:     +document.getElementById('trEpochs').value,
+    batch_size: +document.getElementById('trBatch').value,
+    lr:         +document.getElementById('trLr').value,
+    optimizer:  document.getElementById('trOptim').value,
+    device:     document.getElementById('trDevice').value,
+    val_split:  +document.getElementById('trValSplit').value,
+  }
+  if (!body.model_id || !body.dataset_id) { alert('请填写 Model ID 和 Dataset ID'); return }
+
+  // 重置图表
+  lossData.epochs = []; lossData.train = []; lossData.val = []
+  accData.epochs  = []; accData.train  = []; accData.val  = []
+  lossChart.setOption({ xAxis: { data: [] }, series: [{ data: [] }, { data: [] }] })
+  accChart.setOption({ xAxis: { data: [] }, series: [{ data: [] }, { data: [] }] })
+
+  try {
+    const r = await fetch(`${API}/training/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json())
+
+    if (!r.task_id) {
+      document.getElementById('trError').innerHTML =
+        `<div class="error-box">启动失败: ${JSON.stringify(r)}</div>`
+      return
+    }
+    currentTaskId = r.task_id
+    document.getElementById('trTaskId').textContent = `task_id: ${currentTaskId}`
+    document.getElementById('trError').innerHTML = ''
+    setTrainingStatus('running')
+
+    // 建立 SSE 连接
+    if (eventSource) eventSource.close()
+    eventSource = new EventSource(`${API}/training/${currentTaskId}/stream`)
+
+    eventSource.addEventListener('epoch', e => {
+      const d = JSON.parse(e.data)
+      lossData.epochs.push(d.epoch)
+      lossData.train.push(+d.train_loss.toFixed(4))
+      lossData.val.push(+d.val_loss.toFixed(4))
+      accData.epochs.push(d.epoch)
+      accData.train.push(+d.train_acc.toFixed(4))
+      accData.val.push(+d.val_acc.toFixed(4))
+      lossChart.setOption({ xAxis: { data: lossData.epochs },
+                            series: [{ data: lossData.train }, { data: lossData.val }] })
+      accChart.setOption({ xAxis: { data: accData.epochs },
+                           series: [{ data: accData.train }, { data: accData.val }] })
+    })
+    eventSource.addEventListener('done', e => {
+      const d = JSON.parse(e.data)
+      setTrainingStatus(d.status || 'finished')
+      eventSource.close()
+    })
+    eventSource.addEventListener('error', e => {
+      try {
+        const d = JSON.parse(e.data)
+        document.getElementById('trError').innerHTML =
+          `<div class="error-box">训练错误: ${d.message}</div>`
+      } catch {}
+      setTrainingStatus('error')
+      eventSource.close()
+    })
+  } catch (err) {
+    document.getElementById('trError').innerHTML =
+      `<div class="error-box">请求失败: ${err.message}</div>`
+  }
+}
+
+async function stopTraining() {
+  if (!currentTaskId) return
+  await fetch(`${API}/training/${currentTaskId}/stop`, { method: 'POST' })
+  if (eventSource) eventSource.close()
+  setTrainingStatus('stopped')
+}
+
+function setTrainingStatus(status) {
+  const el = document.getElementById('trStatus')
+  el.textContent = status
+  el.className = `badge badge-${status}`
+  const running = status === 'running'
+  document.getElementById('btnStart').disabled = running
+  document.getElementById('btnStop').disabled = !running
+}
+
+// ===== 可视化 =====
+let visImageB64 = null
+
+function onImageFile(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = ev => {
+    const dataUrl = ev.target.result
+    visImageB64 = dataUrl.split(',')[1]
+    document.getElementById('visPreview').innerHTML =
+      `<img src="${dataUrl}" style="max-height:100px;border-radius:6px;border:1px solid #30363d" />`
+    document.getElementById('btnGradcam').disabled = false
+    document.getElementById('btnFeatMaps').disabled = false
+  }
+  reader.readAsDataURL(file)
+}
+
+async function doGradcam() {
+  const model_id = document.getElementById('visModelId').value.trim()
+  const layer    = document.getElementById('visLayer').value.trim()
+  if (!model_id || !layer) { alert('请填写 Model ID 和层名称'); return }
+  document.getElementById('gradcamResult').innerHTML = '<span style="color:#8b949e">推理中…</span>'
+  document.getElementById('visError').innerHTML = ''
+
+  try {
+    const r = await fetch(`${API}/explain/gradcam`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id, image_base64: visImageB64, target_layer_name: layer }),
+    }).then(r => r.json())
+
+    if (r.heatmap) {
+      document.getElementById('gradcamResult').innerHTML = `
+        <figure>
+          <img src="data:image/png;base64,${r.heatmap}" />
+          <figcaption>热力图</figcaption>
+        </figure>
+        <figure>
+          <img src="data:image/png;base64,${r.overlay}" />
+          <figcaption>叠加图</figcaption>
+        </figure>`
+    } else {
+      document.getElementById('visError').innerHTML =
+        `<div class="error-box">${JSON.stringify(r)}</div>`
+      document.getElementById('gradcamResult').innerHTML = '<span style="color:#8b949e">推理失败</span>'
+    }
+  } catch (e) {
+    document.getElementById('visError').innerHTML =
+      `<div class="error-box">请求失败: ${e.message}</div>`
+  }
+}
+
+async function doFeatureMaps() {
+  const model_id = document.getElementById('visModelId').value.trim()
+  const layer    = document.getElementById('visLayer').value.trim()
+  if (!model_id || !layer) { alert('请填写 Model ID 和层名称'); return }
+  document.getElementById('featureMapsGrid').innerHTML = '<span style="color:#8b949e">推理中…</span>'
+  document.getElementById('visError').innerHTML = ''
+
+  try {
+    const r = await fetch(`${API}/explain/feature_maps`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id, image_base64: visImageB64, target_layer_name: layer }),
+    }).then(r => r.json())
+
+    if (r.maps) {
+      document.getElementById('featMapCount').textContent = `(${r.num_channels} 通道)`
+      document.getElementById('featureMapsGrid').innerHTML = r.maps.map(m =>
+        `<figure>
+           <img src="data:image/png;base64,${m.image}" style="width:64px;height:64px;object-fit:cover" />
+           <figcaption>Ch ${m.channel}</figcaption>
+         </figure>`
+      ).join('')
+    } else {
+      document.getElementById('visError').innerHTML =
+        `<div class="error-box">${JSON.stringify(r)}</div>`
+    }
+  } catch (e) {
+    document.getElementById('visError').innerHTML =
+      `<div class="error-box">请求失败: ${e.message}</div>`
+  }
+}
+
+// ===== 初始化 =====
+window.onload = () => {
+  checkApi()
+  loadPresets()
+  loadModelList()
+  loadDatasets()
+  initCharts()
+  setInterval(checkApi, 10000)
+}
+</script>
+</body>
+</html>
