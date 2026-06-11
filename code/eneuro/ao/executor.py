@@ -63,6 +63,7 @@ class GraphExecutor:
             outputs = func(*input_tensors)
             if not isinstance(outputs, tuple):
                 outputs = (outputs,)
+            #print(f"func={func} outputs={outputs}")
             
             # 获取输出 Tensor 节点（后继）
             output_nodes = [
