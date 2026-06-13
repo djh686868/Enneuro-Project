@@ -17,7 +17,8 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 def register(req: DatasetRegisterRequest):
     if not os.path.exists(req.path):
         raise HTTPException(status_code=400, detail=f"Path does not exist: {req.path}")
-    dataset_id = register_dataset(req.name, req.path, req.description)
+    img_size = (req.resize_w, req.resize_h) if req.resize_w > 0 and req.resize_h > 0 else None
+    dataset_id = register_dataset(req.name, req.path, req.description, img_size=img_size)
     return {"dataset_id": dataset_id}
 
 
@@ -49,7 +50,7 @@ def preview_dataset(dataset_id: str, n: int = 9):
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     try:
-        ds = _detect_and_load_dataset(meta["path"])
+        ds = _detect_and_load_dataset(meta["path"], img_size=meta.get("img_size"))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to load dataset: {e}")
 

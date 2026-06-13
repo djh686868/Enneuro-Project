@@ -58,11 +58,15 @@ def _training_worker(config: dict, q: queue.Queue, task: TrainingTask):
             q.put({"type": "epoch", **metrics})
             task.metrics_history.append(metrics)
 
+        def on_batch_end(metrics: dict):
+            q.put({"type": "batch", **metrics})
+
         trainer = Trainer(
             model=model,
             loss_fn=loss_fn,
             optimizer=optimizer,
             on_epoch_end=on_epoch_end,
+            on_batch_end=on_batch_end,
         )
         task.trainer_ref = trainer
 

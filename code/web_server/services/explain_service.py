@@ -55,10 +55,11 @@ def run_gradcam(model_id: str, image_b64: str, layer_name: str, class_idx=None):
     cam = GradCAM(model, target_layer)
     heatmap = cam.generate(x, class_idx=class_idx)   # (H, W) float[0,1]
 
-    h_color = cv2.applyColorMap((heatmap * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    DISPLAY = 224
+    heatmap_big = cv2.resize(heatmap, (DISPLAY, DISPLAY), interpolation=cv2.INTER_LINEAR)
+    h_color = cv2.applyColorMap((heatmap_big * 255).astype(np.uint8), cv2.COLORMAP_JET)
     orig_u8 = (img_np[0, 0] * 255).astype(np.uint8)
-    orig_bgr = cv2.cvtColor(orig_u8, cv2.COLOR_GRAY2BGR)
-    orig_bgr = cv2.resize(orig_bgr, (heatmap.shape[1], heatmap.shape[0]))
+    orig_bgr = cv2.cvtColor(cv2.resize(orig_u8, (DISPLAY, DISPLAY)), cv2.COLOR_GRAY2BGR)
     overlay = cv2.addWeighted(orig_bgr, 0.5, h_color, 0.5, 0)
 
     _, buf_h = cv2.imencode(".png", h_color)

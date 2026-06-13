@@ -51,7 +51,7 @@ class Layer:
                 if param.data is None:
                     param.device = device
                 elif device in ['cuda', 'gpu']:
-                    if isinstance(param.data, np.ndarray):
+                    if has_cupy and isinstance(param.data, np.ndarray):
                         param._data = cp.asarray(param.data)
                     param.device = 'cuda'
                 else:  # cpu

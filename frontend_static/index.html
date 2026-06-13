@@ -60,11 +60,20 @@
   .img-grid figure { margin: 0; text-align: center; }
   .img-grid img { border-radius: 4px; display: block; }
   .img-grid figcaption { font-size: 10px; color: #8b949e; margin-top: 2px; }
-  .result-imgs { display: flex; gap: 16px; flex-wrap: wrap; }
+  .result-imgs { display: flex; gap: 20px; flex-wrap: wrap; }
   .result-imgs figure { margin: 0; text-align: center; }
-  .result-imgs img { max-height: 240px; border-radius: 8px; border: 1px solid #30363d; }
-  .result-imgs figcaption { font-size: 12px; color: #8b949e; margin-top: 4px; }
-  #chartLoss, #chartAcc { width: 100%; height: 280px; border-radius: 8px; }
+  .result-imgs img { width: 220px; height: 220px; object-fit: contain;
+                     border-radius: 8px; border: 1px solid #30363d;
+                     image-rendering: auto; }
+  .result-imgs figcaption { font-size: 12px; color: #8b949e; margin-top: 6px; }
+  #chartLoss, #chartAcc { width: 100%; height: 300px; border-radius: 8px; }
+  #chartBatch { width: 100%; height: 260px; border-radius: 8px; }
+  .ds-sample-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; }
+  .ds-sample-picker figure { margin: 0; text-align: center; cursor: pointer; border: 2px solid transparent;
+                              border-radius: 6px; padding: 2px; transition: border-color .15s; }
+  .ds-sample-picker figure:hover { border-color: #58a6ff; }
+  .ds-sample-picker figure.selected { border-color: #3fb950; }
+  .ds-sample-picker figcaption { font-size: 9px; color: #8b949e; margin-top: 2px; }
   .info-box { background: #0d2a5c; border: 1px solid #1f6feb; border-radius: 8px;
               padding: 12px 16px; font-size: 13px; color: #79c0ff; margin-bottom: 12px; }
   .error-box { background: #4a0d1a; border: 1px solid #da3633; border-radius: 8px;
@@ -108,6 +117,23 @@
       <h3>已构建模型</h3>
       <div id="builtModelInfo" style="color:#8b949e;font-size:13px">尚未构建模型</div>
       <div id="modelList" style="margin-top:12px"></div>
+      <hr style="border-color:#30363d;margin:14px 0" />
+      <h3>加载已保存模型</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <button class="btn btn-blue" style="font-size:12px;padding:5px 12px"
+                onclick="loadSavedList()">刷新列表</button>
+      </div>
+      <div id="savedModelList" style="color:#8b949e;font-size:13px">点击刷新加载</div>
+    </div>
+  </div>
+  <div class="card" id="archCard" style="display:none">
+    <h3 id="archTitle">模型架构</h3>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
+      点击层名可复制到「可视化」面板的目标层输入框
+    </div>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div id="archDiagram" style="flex:1;min-width:260px;overflow-x:auto"></div>
+      <div id="archLayerList" style="flex:0 0 220px;font-size:12px"></div>
     </div>
   </div>
 </div>
@@ -121,6 +147,21 @@
       <div class="form-row"><label>数据集名称</label><input id="dsName" placeholder="donkey_test" /></div>
       <div class="form-row"><label>本地路径（服务器端）</label><input id="dsPath" placeholder="D:/path/to/dataset" /></div>
       <div class="form-row"><label>描述（可选）</label><input id="dsDesc" /></div>
+      <div class="form-row">
+        <label>图像尺寸</label>
+        <select id="dsResizeMode" onchange="toggleCustomResize(this.value)" style="margin-bottom:6px">
+          <option value="original">原图尺寸（不 resize）</option>
+          <option value="160x120">160 × 120（DonkeyCar 原始）</option>
+          <option value="224x224">224 × 224（标准 ImageNet）</option>
+          <option value="32x32">32 × 32（轻量 MNIST/LeNet）</option>
+          <option value="custom">自定义…</option>
+        </select>
+        <div id="dsResizeCustom" style="display:none;display:flex;gap:8px;align-items:center">
+          <input id="dsResizeW" type="number" placeholder="宽 W" min="1" style="width:80px" />
+          <span style="color:#8b949e">×</span>
+          <input id="dsResizeH" type="number" placeholder="高 H" min="1" style="width:80px" />
+        </div>
+      </div>
       <button class="btn" onclick="registerDataset()">注册</button>
       <div id="dsRegResult" style="margin-top:8px"></div>
     </div>
@@ -177,12 +218,45 @@
       <div id="trError" style="margin-top:8px"></div>
     </div>
     <div class="card">
-      <h3>训练曲线</h3>
-      <div id="chartLoss"></div>
+      <h3>Batch 实时曲线 <span id="batchChartLabel" style="font-size:11px;color:#8b949e"></span></h3>
+      <div id="chartBatch"></div>
+    </div>
+  </div>
+  <!-- 系统资源监控 -->
+  <div class="card" id="sysMonCard">
+    <h3>系统资源监控</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">CPU 使用率</div>
+        <div id="sysGaugeCpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysCpuPct">--</span>%
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">内存使用率</div>
+        <div id="sysGaugeMem" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysMemPct">--</span>% &nbsp;
+          <span id="sysMemGB" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+      <div id="sysGpuCol">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">GPU 使用率</div>
+        <div id="sysGaugeGpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysGpuPct">--</span>% &nbsp;
+          <span id="sysGpuMem" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
     </div>
   </div>
   <div class="card">
-    <h3>准确率曲线</h3>
+    <h3>Epoch Loss 曲线</h3>
+    <div id="chartLoss"></div>
+  </div>
+  <div class="card">
+    <h3>Epoch Accuracy 曲线</h3>
     <div id="chartAcc"></div>
   </div>
 </div>
@@ -196,10 +270,18 @@
       <div class="form-row"><label>Model ID</label><input id="visModelId" placeholder="从模型设计复制" /></div>
       <div class="form-row"><label>目标层名称</label><input id="visLayer" placeholder="如 layer_0 或 conv1" /></div>
       <div class="form-row">
-        <label>输入图像</label>
+        <label>上传图像文件</label>
         <input type="file" accept="image/*" onchange="onImageFile(event)" id="visFile" />
       </div>
-      <div id="visPreview" style="margin-top:8px"></div>
+      <div style="margin:10px 0;color:#8b949e;font-size:12px;text-align:center">── 或从数据集中选取 ──</div>
+      <div class="form-row">
+        <label>选择数据集</label>
+        <select id="visDatasetSelect" onchange="loadVisDatasetSamples()">
+          <option value="">— 请选择 —</option>
+        </select>
+      </div>
+      <div id="visDatasetSamples" class="ds-sample-picker" style="margin-bottom:8px"></div>
+      <div id="visPreview" style="margin-top:4px"></div>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn btn-blue" id="btnGradcam" onclick="doGradcam()" disabled>GradCAM</button>
         <button class="btn" id="btnFeatMaps" onclick="doFeatureMaps()" disabled>特征图</button>
@@ -226,6 +308,17 @@ function showPage(name, el) {
   document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'))
   document.getElementById('page-' + name).classList.add('active')
   el.classList.add('active')
+  // 切换到训练页时强制 ECharts 重新计算容器尺寸
+  if (name === 'training') {
+    requestAnimationFrame(() => {
+      if (lossChart)  lossChart.resize()
+      if (accChart)   accChart.resize()
+      if (batchChart) batchChart.resize()
+      if (_gauCpu)    _gauCpu.resize()
+      if (_gauMem)    _gauMem.resize()
+      if (_gauGpu)    _gauGpu.resize()
+    })
+  }
 }
 
 // ===== API 状态检查 =====
@@ -362,6 +455,7 @@ async function buildModel() {
       document.getElementById('trModelId').value = r.model_id
       document.getElementById('visModelId').value = r.model_id
       await loadModelList()
+      await showArchitecture(r.model_id, r.model_type)
     } else {
       document.getElementById('builtModelInfo').innerHTML =
         `<span style="color:#f85149">构建失败: ${JSON.stringify(r)}</span>`
@@ -379,23 +473,218 @@ async function loadModelList() {
   div.innerHTML = models.map(m =>
     `<div style="display:flex;justify-content:space-between;align-items:center;
                  padding:6px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:13px">
-       <span class="mono">${m.model_id}</span>
-       <span style="color:#8b949e">${m.type}</span>
+       <div>
+         <span class="mono">${m.model_id}</span>
+         <span style="color:#8b949e;margin-left:8px">${m.type}</span>
+       </div>
+       <div style="display:flex;gap:5px;align-items:center">
+         <button onclick="showArchitecture('${m.model_id}','${m.type}')"
+                 style="background:none;border:1px solid #30363d;color:#79c0ff;cursor:pointer;
+                        font-size:11px;padding:2px 7px;border-radius:4px">架构</button>
+         <button onclick="saveModel('${m.model_id}')"
+                 style="background:none;border:1px solid #238636;color:#3fb950;cursor:pointer;
+                        font-size:11px;padding:2px 7px;border-radius:4px">保存</button>
+         <button onclick="deleteModel('${m.model_id}')"
+                 style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px;
+                        padding:0 4px;line-height:1" title="删除">✕</button>
+       </div>
      </div>`
   ).join('')
 }
 
+// ===== 模型架构可视化 =====
+const LAYER_COLORS = {
+  Conv2d: '#1f6feb', Linear: '#238636', BatchNorm2d: '#9e6a03',
+  ResidualBlock: '#6e40c9', LeNet: '#0d4a6e', AlexNet: '#0d4a6e',
+  VGG: '#0d4a6e', ResNet18: '#0d4a6e', default: '#2d333b',
+}
+const LAYER_TEXT = {
+  Conv2d: '#79c0ff', Linear: '#3fb950', BatchNorm2d: '#e3b341',
+  ResidualBlock: '#d2a8ff', default: '#8b949e',
+}
+
+function _flattenLayers(nodes, depth=0, result=[]) {
+  for (const n of nodes) {
+    result.push({ ...n, depth })
+    if (n.children && n.children.length)
+      _flattenLayers(n.children, depth + 1, result)
+  }
+  return result
+}
+
+async function showArchitecture(model_id, model_type) {
+  const card = document.getElementById('archCard')
+  card.style.display = 'block'
+  document.getElementById('archTitle').textContent =
+    `模型架构 — ${model_type} (${model_id})`
+  document.getElementById('archDiagram').innerHTML =
+    '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  document.getElementById('archLayerList').innerHTML = ''
+
+  const data = await fetch(`${API}/models/${model_id}/architecture`).then(r => r.json())
+  const flat  = _flattenLayers(data.layers)
+  const topLevel = data.layers  // only top-level for diagram
+
+  // ── 右侧层名列表（可点击复制）──
+  const listEl = document.getElementById('archLayerList')
+  listEl.innerHTML = '<div style="color:#8b949e;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em">可用层名称（点击填入）</div>'
+  flat.forEach(n => {
+    const indent = n.depth * 12
+    const color  = LAYER_TEXT[n.type] || LAYER_TEXT.default
+    const row = document.createElement('div')
+    row.style.cssText = `padding:3px 8px 3px ${8+indent}px;cursor:pointer;border-radius:4px;
+                         margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;
+                         background:#21262d`
+    row.innerHTML =
+      `<span style="color:${color};font-family:monospace;font-size:12px">${n.attr}</span>
+       <span style="color:#6e7681;font-size:10px">${n.type}</span>`
+    row.title = `点击填入可视化目标层: ${n.attr}`
+    row.onclick = () => {
+      document.getElementById('visLayer').value = n.attr
+      document.getElementById('visModelId').value = model_id
+      // 高亮反馈
+      row.style.background = '#0d2a5c'
+      setTimeout(() => row.style.background = '#21262d', 600)
+    }
+    listEl.appendChild(row)
+  })
+
+  // ── 左侧 SVG 架构图（仅顶层展开一级子层）──
+  const BOX_W = 200, BOX_H = 44, GAP = 28, PAD = 20
+  const nodes = topLevel
+
+  // 每个顶层节点展示为一个主 box，子层折叠为小标签
+  let svgRows = []
+  nodes.forEach((n, i) => {
+    const y = PAD + i * (BOX_H + GAP)
+    const bg = LAYER_COLORS[n.type] || LAYER_COLORS.default
+    const fg = LAYER_TEXT[n.type]  || LAYER_TEXT.default
+    const childTags = (n.children || []).map(c =>
+      `<tspan fill="${LAYER_TEXT[c.type]||'#8b949e'}" font-size="9">  ·${c.attr}</tspan>`
+    ).join('')
+
+    svgRows.push(`
+      <g class="arch-node" style="cursor:pointer" onclick="
+        document.getElementById('visLayer').value='${n.attr}';
+        document.getElementById('visModelId').value='${model_id}'">
+        <rect x="${PAD}" y="${y}" width="${BOX_W}" height="${BOX_H}"
+              rx="6" fill="${bg}" stroke="${fg}" stroke-width="1.2"/>
+        <text x="${PAD+BOX_W/2}" y="${y+17}" text-anchor="middle"
+              fill="${fg}" font-size="13" font-family="monospace" font-weight="600">${n.attr}</text>
+        <text x="${PAD+BOX_W/2}" y="${y+30}" text-anchor="middle"
+              fill="#6e7681" font-size="10" font-family="sans-serif">${n.type}</text>
+      </g>
+      ${i < nodes.length-1 ? `
+        <line x1="${PAD+BOX_W/2}" y1="${y+BOX_H}" x2="${PAD+BOX_W/2}" y2="${y+BOX_H+GAP}"
+              stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>` : ''}
+    `)
+  })
+
+  const totalH = PAD + nodes.length * (BOX_H + GAP) + PAD
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${BOX_W+PAD*2}" height="${totalH}"
+         style="display:block">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="4" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#30363d"/>
+        </marker>
+      </defs>
+      ${svgRows.join('')}
+    </svg>`
+
+  document.getElementById('archDiagram').innerHTML = svg
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function deleteModel(model_id) {
+  await fetch(`${API}/models/${model_id}`, { method: 'DELETE' })
+  await loadModelList()
+}
+
+async function saveModel(model_id) {
+  const name = prompt('保存为文件名（留空使用 model_id）：', model_id)
+  if (name === null) return
+  const r = await fetch(`${API}/models/${model_id}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || model_id }),
+  }).then(r => r.json())
+  if (r.ok) {
+    alert(`已保存为 ${r.file}`)
+    loadSavedList()
+  } else {
+    alert('保存失败: ' + JSON.stringify(r))
+  }
+}
+
+async function loadSavedList() {
+  const div = document.getElementById('savedModelList')
+  div.innerHTML = '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  const files = await fetch(`${API}/models/saved/list`).then(r => r.json())
+  if (!files.length) {
+    div.innerHTML = '<span style="color:#8b949e;font-size:12px">暂无已保存模型</span>'
+    return
+  }
+  div.innerHTML = files.map(f =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;
+                 padding:5px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:12px">
+       <div>
+         <span style="color:#e6edf3">${f.file}</span>
+         <span style="color:#8b949e;margin-left:8px">${f.model_type}</span>
+       </div>
+       <button onclick="loadSavedModel('${f.file}')"
+               style="background:#238636;border:none;color:#fff;cursor:pointer;
+                      font-size:11px;padding:3px 10px;border-radius:4px">加载</button>
+     </div>`
+  ).join('')
+}
+
+async function loadSavedModel(file) {
+  const r = await fetch(`${API}/models/saved/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }),
+  }).then(r => r.json())
+  if (r.ok) {
+    document.getElementById('builtModelInfo').innerHTML =
+      `✓ 加载成功！<br>model_id: <span class="mono">${r.model_id}</span><br>类型: ${r.model_type}`
+    document.getElementById('trModelId').value = r.model_id
+    document.getElementById('visModelId').value = r.model_id
+    await loadModelList()
+    await showArchitecture(r.model_id, r.model_type)
+  } else {
+    alert('加载失败: ' + JSON.stringify(r))
+  }
+}
+
 // ===== 数据集 =====
+function toggleCustomResize(val) {
+  document.getElementById('dsResizeCustom').style.display = val === 'custom' ? 'flex' : 'none'
+}
+
+function _getResizeWH() {
+  const mode = document.getElementById('dsResizeMode').value
+  if (mode === 'original') return { resize_w: 0, resize_h: 0 }
+  if (mode === 'custom') {
+    const w = parseInt(document.getElementById('dsResizeW').value) || 0
+    const h = parseInt(document.getElementById('dsResizeH').value) || 0
+    return { resize_w: w, resize_h: h }
+  }
+  const [w, h] = mode.split('x').map(Number)
+  return { resize_w: w, resize_h: h }
+}
+
 async function registerDataset() {
   const name = document.getElementById('dsName').value.trim()
   const path = document.getElementById('dsPath').value.trim()
   const desc = document.getElementById('dsDesc').value.trim()
   if (!name || !path) { alert('名称和路径必填'); return }
 
+  const { resize_w, resize_h } = _getResizeWH()
   const r = await fetch(`${API}/datasets/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, path, description: desc }),
+    body: JSON.stringify({ name, path, description: desc, resize_w, resize_h }),
   }).then(r => r.json())
 
   if (r.dataset_id) {
@@ -417,14 +706,22 @@ async function loadDatasets() {
   const datasets = await fetch(`${API}/datasets`).then(r => r.json())
   const div = document.getElementById('datasetList')
   _datasetIds = datasets
+  _syncVisDatasetDropdown(datasets)
   if (!datasets.length) { div.innerHTML = '<span style="color:#8b949e;font-size:13px">暂无数据集</span>'; return }
   div.innerHTML = datasets.map(d =>
-    `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;font-size:13px">
-       <div style="display:flex;justify-content:space-between">
+    (() => {
+      const sz = d.img_size ? `${d.img_size[0]}×${d.img_size[1]}` : '原图'
+      return `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;font-size:13px">
+       <div style="display:flex;justify-content:space-between;align-items:center">
          <strong>${d.name}</strong>
          <span class="mono">${d.dataset_id}</span>
        </div>
        <div style="color:#8b949e;font-size:11px;margin-top:2px">${d.path}</div>
+       <div style="margin-top:4px">
+         <span style="font-size:11px;background:#0d2a5c;color:#58a6ff;padding:2px 8px;border-radius:10px">
+           输入尺寸：${sz}
+         </span>
+       </div>
        <div style="margin-top:8px;display:flex;gap:6px">
          <button class="btn btn-blue" style="font-size:11px;padding:4px 10px"
            onclick="previewDataset('${d.dataset_id}','${d.name}')">预览</button>
@@ -432,6 +729,7 @@ async function loadDatasets() {
            onclick="document.getElementById('trDatasetId').value='${d.dataset_id}'">复制ID→训练</button>
        </div>
      </div>`
+    })()
   ).join('')
 }
 
@@ -460,31 +758,103 @@ let currentTaskId = null
 let eventSource = null
 let lossChart = null
 let accChart = null
-const lossData = { epochs: [], train: [], val: [] }
-const accData  = { epochs: [], train: [], val: [] }
+let batchChart = null
+const lossData  = { epochs: [], train: [], val: [] }
+const accData   = { epochs: [], train: [], val: [] }
+const batchData = { labels: [], loss: [], acc: [] }
+const BATCH_WINDOW = 80  // 最多显示最近 N 个 batch
 
 function initCharts() {
-  lossChart = echarts.init(document.getElementById('chartLoss'), 'dark')
-  accChart  = echarts.init(document.getElementById('chartAcc'),  'dark')
-  const baseOpt = (title, names) => ({
+  lossChart  = echarts.init(document.getElementById('chartLoss'),  'dark')
+  accChart   = echarts.init(document.getElementById('chartAcc'),   'dark')
+  batchChart = echarts.init(document.getElementById('chartBatch'), 'dark')
+
+  const epochOpt = (names, yLabel) => ({
     backgroundColor: 'transparent',
-    title: { text: title, textStyle: { color: '#8b949e', fontSize: 13 } },
     tooltip: { trigger: 'axis' },
-    legend: { data: names, textStyle: { color: '#8b949e' } },
-    xAxis: { type: 'category', data: [], axisLine: { lineStyle: { color: '#30363d' } },
-             axisLabel: { color: '#8b949e' } },
-    yAxis: { type: 'value', axisLine: { lineStyle: { color: '#30363d' } },
-             axisLabel: { color: '#8b949e' }, splitLine: { lineStyle: { color: '#21262d' } } },
+    legend: { data: names, textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: {
+      type: 'category', data: [],
+      name: 'Epoch', nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      boundaryGap: false,
+    },
+    yAxis: {
+      type: 'value', name: yLabel, nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      splitLine: { lineStyle: { color: '#21262d' } },
+    },
     series: names.map((n, i) => ({
       name: n, type: 'line', smooth: true, data: [],
       lineStyle: { width: 2 },
+      symbol: 'circle', symbolSize: 6,
       itemStyle: { color: i === 0 ? '#58a6ff' : '#3fb950' },
     })),
-    grid: { left: '8%', right: '4%', top: '14%', bottom: '10%' },
+    grid: { left: '7%', right: '3%', top: '40px', bottom: '36px' },
   })
-  lossChart.setOption(baseOpt('Loss', ['Train Loss', 'Val Loss']))
-  accChart.setOption(baseOpt('Accuracy', ['Train Acc', 'Val Acc']))
+
+  lossChart.setOption(epochOpt(['Train Loss', 'Val Loss'], 'Loss'))
+  accChart.setOption(epochOpt(['Train Acc', 'Val Acc'], 'Acc'))
+
+  batchChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Batch Loss', 'Batch Acc'], textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: {
+      type: 'category', data: [],
+      name: 'Batch', nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e', show: false },
+      boundaryGap: false,
+    },
+    yAxis: [
+      { type: 'value', name: 'Loss', nameTextStyle: { color: '#8b949e' },
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#8b949e' },
+        splitLine: { lineStyle: { color: '#21262d' } } },
+      { type: 'value', name: 'Acc', nameTextStyle: { color: '#8b949e' },
+        min: 0, max: 1,
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#8b949e' },
+        splitLine: { show: false } },
+    ],
+    series: [
+      { name: 'Batch Loss', type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#f0883e' }, yAxisIndex: 0 },
+      { name: 'Batch Acc',  type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#a371f7' }, yAxisIndex: 1 },
+    ],
+    grid: { left: '8%', right: '8%', top: '40px', bottom: '24px' },
+  })
 }
+
+function _resetCharts(totalEpochs) {
+  lossData.epochs = []; lossData.train = []; lossData.val = []
+  accData.epochs  = []; accData.train  = []; accData.val  = []
+  batchData.labels = []; batchData.loss = []; batchData.acc = []
+
+  const xEpoch = Array.from({length: totalEpochs}, (_, i) => i + 1)
+  const emptyEpoch = Array(totalEpochs).fill(null)
+
+  lossChart.setOption({
+    xAxis: { data: xEpoch },
+    series: [{ data: [...emptyEpoch] }, { data: [...emptyEpoch] }]
+  })
+  accChart.setOption({
+    xAxis: { data: xEpoch },
+    series: [{ data: [...emptyEpoch] }, { data: [...emptyEpoch] }]
+  })
+  batchChart.setOption({
+    xAxis: { data: [] },
+    series: [{ data: [] }, { data: [] }]
+  })
+}
+
+let _globalBatch = 0
 
 async function startTraining() {
   const body = {
@@ -499,11 +869,8 @@ async function startTraining() {
   }
   if (!body.model_id || !body.dataset_id) { alert('请填写 Model ID 和 Dataset ID'); return }
 
-  // 重置图表
-  lossData.epochs = []; lossData.train = []; lossData.val = []
-  accData.epochs  = []; accData.train  = []; accData.val  = []
-  lossChart.setOption({ xAxis: { data: [] }, series: [{ data: [] }, { data: [] }] })
-  accChart.setOption({ xAxis: { data: [] }, series: [{ data: [] }, { data: [] }] })
+  _resetCharts(body.epochs)
+  _globalBatch = 0
 
   try {
     const r = await fetch(`${API}/training/start`, {
@@ -521,33 +888,48 @@ async function startTraining() {
     document.getElementById('trError').innerHTML = ''
     setTrainingStatus('running')
 
-    // 建立 SSE 连接
     if (eventSource) eventSource.close()
     eventSource = new EventSource(`${API}/training/${currentTaskId}/stream`)
 
+    eventSource.addEventListener('batch', e => {
+      const d = JSON.parse(e.data)
+      _globalBatch++
+      document.getElementById('batchChartLabel').textContent =
+        `Epoch ${d.epoch} · Batch ${d.batch + 1}`
+
+      batchData.labels.push(_globalBatch)
+      batchData.loss.push(d.batch_loss != null ? +d.batch_loss.toFixed(4) : null)
+      batchData.acc.push(d.batch_acc  != null ? +d.batch_acc.toFixed(4)  : null)
+
+      // 滑动窗口
+      if (batchData.labels.length > BATCH_WINDOW) {
+        batchData.labels.shift(); batchData.loss.shift(); batchData.acc.shift()
+      }
+      batchChart.setOption({
+        xAxis: { data: batchData.labels },
+        series: [{ data: batchData.loss }, { data: batchData.acc }]
+      })
+    })
+
     eventSource.addEventListener('epoch', e => {
       const d = JSON.parse(e.data)
-      lossData.epochs.push(d.epoch)
-      lossData.train.push(+d.train_loss.toFixed(4))
-      lossData.val.push(+d.val_loss.toFixed(4))
-      accData.epochs.push(d.epoch)
-      accData.train.push(+d.train_acc.toFixed(4))
-      accData.val.push(+d.val_acc.toFixed(4))
-      lossChart.setOption({ xAxis: { data: lossData.epochs },
-                            series: [{ data: lossData.train }, { data: lossData.val }] })
-      accChart.setOption({ xAxis: { data: accData.epochs },
-                           series: [{ data: accData.train }, { data: accData.val }] })
+      const idx = d.epoch - 1
+      lossData.train[idx] = +d.train_loss.toFixed(4)
+      lossData.val[idx]   = +d.val_loss.toFixed(4)
+      accData.train[idx]  = +d.train_acc.toFixed(4)
+      accData.val[idx]    = +d.val_acc.toFixed(4)
+      lossChart.setOption({ series: [{ data: [...lossData.train] }, { data: [...lossData.val] }] })
+      accChart.setOption({  series: [{ data: [...accData.train]  }, { data: [...accData.val]  }] })
     })
+
     eventSource.addEventListener('done', e => {
-      const d = JSON.parse(e.data)
-      setTrainingStatus(d.status || 'finished')
+      setTrainingStatus(JSON.parse(e.data).status || 'finished')
       eventSource.close()
     })
     eventSource.addEventListener('error', e => {
       try {
-        const d = JSON.parse(e.data)
         document.getElementById('trError').innerHTML =
-          `<div class="error-box">训练错误: ${d.message}</div>`
+          `<div class="error-box">训练错误: ${JSON.parse(e.data).message}</div>`
       } catch {}
       setTrainingStatus('error')
       eventSource.close()
@@ -577,17 +959,68 @@ function setTrainingStatus(status) {
 // ===== 可视化 =====
 let visImageB64 = null
 
+function _setVisImage(b64, labelText) {
+  visImageB64 = b64
+  document.getElementById('visPreview').innerHTML =
+    `<img src="data:image/png;base64,${b64}"
+          style="max-height:100px;border-radius:6px;border:1px solid #30363d" />
+     ${labelText ? `<div style="font-size:11px;color:#8b949e;margin-top:4px">${labelText}</div>` : ''}`
+  document.getElementById('btnGradcam').disabled = false
+  document.getElementById('btnFeatMaps').disabled = false
+}
+
+async function loadVisDatasetSamples() {
+  const dsId = document.getElementById('visDatasetSelect').value
+  const container = document.getElementById('visDatasetSamples')
+  container.innerHTML = ''
+  if (!dsId) return
+  container.innerHTML = '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  try {
+    const r = await fetch(`${API}/datasets/${dsId}/preview?n=20`).then(r => r.json())
+    if (!r.samples || !r.samples.length) {
+      container.innerHTML = '<span style="color:#f85149;font-size:12px">无法加载样本</span>'
+      return
+    }
+    container.innerHTML = ''
+    r.samples.forEach((s, i) => {
+      const fig = document.createElement('figure')
+      fig.innerHTML = `<img src="data:image/png;base64,${s.image}"
+                            style="width:56px;height:56px;object-fit:cover;border-radius:4px;display:block" />
+                       <figcaption>label ${s.label}</figcaption>`
+      fig.onclick = () => {
+        container.querySelectorAll('figure').forEach(f => f.classList.remove('selected'))
+        fig.classList.add('selected')
+        _setVisImage(s.image, `数据集样本 #${i}  label=${s.label}`)
+      }
+      container.appendChild(fig)
+    })
+  } catch (e) {
+    container.innerHTML = `<span style="color:#f85149;font-size:12px">请求失败: ${e.message}</span>`
+  }
+}
+
+function _syncVisDatasetDropdown(datasets) {
+  const sel = document.getElementById('visDatasetSelect')
+  const cur = sel.value
+  sel.innerHTML = '<option value="">— 请选择 —</option>'
+  datasets.forEach(d => {
+    const opt = document.createElement('option')
+    opt.value = d.dataset_id
+    opt.textContent = `${d.name}  (${d.dataset_id})`
+    sel.appendChild(opt)
+  })
+  if (cur) sel.value = cur
+}
+
 function onImageFile(e) {
   const file = e.target.files[0]
   if (!file) return
   const reader = new FileReader()
   reader.onload = ev => {
     const dataUrl = ev.target.result
-    visImageB64 = dataUrl.split(',')[1]
-    document.getElementById('visPreview').innerHTML =
-      `<img src="${dataUrl}" style="max-height:100px;border-radius:6px;border:1px solid #30363d" />`
-    document.getElementById('btnGradcam').disabled = false
-    document.getElementById('btnFeatMaps').disabled = false
+    document.getElementById('visDatasetSamples')
+      .querySelectorAll('figure').forEach(f => f.classList.remove('selected'))
+    _setVisImage(dataUrl.split(',')[1], file.name)
   }
   reader.readAsDataURL(file)
 }
@@ -657,13 +1090,88 @@ async function doFeatureMaps() {
   }
 }
 
+// ===== 系统资源监控 =====
+let _gauCpu = null, _gauMem = null, _gauGpu = null
+let _sysMonTimer = null
+
+function _makeGauge(domId, label, color) {
+  const c = echarts.init(document.getElementById(domId), 'dark')
+  c.setOption({
+    backgroundColor: 'transparent',
+    series: [{
+      type: 'gauge',
+      radius: '90%',
+      center: ['50%', '60%'],
+      startAngle: 200, endAngle: -20,
+      min: 0, max: 100,
+      axisLine: {
+        lineStyle: {
+          width: 10,
+          color: [[1, '#21262d']],
+        }
+      },
+      progress: { show: true, width: 10, itemStyle: { color } },
+      pointer: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: { show: false },
+      detail: {
+        valueAnimation: true,
+        formatter: '{value}%',
+        color,
+        fontSize: 13,
+        offsetCenter: [0, '-10%'],
+      },
+      data: [{ value: 0, name: label }],
+      title: { show: false },
+    }],
+  })
+  return c
+}
+
+function initSysGauges() {
+  _gauCpu = _makeGauge('sysGaugeCpu', 'CPU', '#f0883e')
+  _gauMem = _makeGauge('sysGaugeMem', 'MEM', '#58a6ff')
+  _gauGpu = _makeGauge('sysGaugeGpu', 'GPU', '#3fb950')
+}
+
+async function pollSysStats() {
+  try {
+    const s = await fetch(`${API}/system/stats`).then(r => r.json())
+    const cpu = Math.round(s.cpu_percent)
+    const mem = Math.round(s.mem_percent)
+    document.getElementById('sysCpuPct').textContent = cpu
+    document.getElementById('sysMemPct').textContent = mem
+    document.getElementById('sysMemGB').textContent =
+      `${s.mem_used_gb} / ${s.mem_total_gb} GB`
+    _gauCpu && _gauCpu.setOption({ series: [{ data: [{ value: cpu }] }] })
+    _gauMem && _gauMem.setOption({ series: [{ data: [{ value: mem }] }] })
+
+    if (s.gpu) {
+      const gpu = Math.round(s.gpu.gpu_percent)
+      document.getElementById('sysGpuPct').textContent = gpu
+      document.getElementById('sysGpuMem').textContent =
+        `${s.gpu.mem_used_gb} / ${s.gpu.mem_total_gb} GB`
+      _gauGpu && _gauGpu.setOption({ series: [{ data: [{ value: gpu }] }] })
+      document.getElementById('sysGpuCol').style.opacity = '1'
+    } else {
+      document.getElementById('sysGpuCol').style.opacity = '0.35'
+      document.getElementById('sysGpuPct').textContent = 'N/A'
+    }
+  } catch (e) { /* ignore */ }
+}
+
 // ===== 初始化 =====
 window.onload = () => {
   checkApi()
   loadPresets()
   loadModelList()
+  loadSavedList()
   loadDatasets()
   initCharts()
+  initSysGauges()
+  pollSysStats()
+  _sysMonTimer = setInterval(pollSysStats, 2000)
   setInterval(checkApi, 10000)
 }
 </script>

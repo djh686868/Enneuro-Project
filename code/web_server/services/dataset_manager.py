@@ -14,13 +14,15 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "../../../uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-def register_dataset(name: str, path: str, description: str = "") -> str:
+def register_dataset(name: str, path: str, description: str = "",
+                     img_size: tuple = None) -> str:
     dataset_id = str(uuid.uuid4())[:8]
     _datasets[dataset_id] = {
         "dataset_id": dataset_id,
         "name": name,
         "path": path,
         "description": description,
+        "img_size": img_size,   # None = 原图；(W, H) = resize
     }
     return dataset_id
 
@@ -34,15 +36,18 @@ class FolderImageDataset(Dataset):
     从目录结构加载图像分类数据集。
     目录格式：root/class_a/img1.jpg, root/class_b/img2.png ...
     也支持 root/ 下直接存放图片（单类）。
+    channels=None 时自动检测（彩色→3，灰度→1）；否则强制指定通道数。
     """
-    def __init__(self, root: str, img_size=(32, 32), transform=None):
+    def __init__(self, root: str, img_size=None, channels=None, transform=None):
         self.root = root
-        self.img_size = img_size
+        self.img_size = img_size   # None = 保持原图尺寸，否则 (W, H) resize
+        self.channels = channels   # None=auto, 1=gray, 3=rgb
         self._samples: list[tuple[str, int]] = []
         self._classes: list[str] = []
         super().__init__(transform=transform)
 
     def prepare(self):
+        import cv2
         subdirs = [
             d for d in os.listdir(self.root)
             if os.path.isdir(os.path.join(self.root, d))
@@ -67,36 +72,61 @@ class FolderImageDataset(Dataset):
                         label_idx = 0
                     self._samples.append((os.path.join(self.root, fname), label_idx))
 
+        # 自动检测通道数（若未指定）：读取第一张图判断是否为彩色
+        if self.channels is None and self._samples:
+            probe = cv2.imread(self._samples[0][0], cv2.IMREAD_COLOR)
+            if probe is not None:
+                b, g, r = probe[:, :, 0], probe[:, :, 1], probe[:, :, 2]
+                self.channels = 1 if (b == g).all() and (g == r).all() else 3
+            else:
+                self.channels = 1
+
     def __len__(self):
         return len(self._samples)
 
     def __getitem__(self, index):
         import cv2
         path, label = self._samples[index]
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            img = np.zeros(self.img_size, dtype=np.uint8)
-        img = cv2.resize(img, self.img_size)
-        x = img.astype(np.float32) / 255.0
-        x = x[np.newaxis, :, :]   # (1, H, W)
+
+        ch = self.channels if self.channels is not None else 1
+        if ch == 1:
+            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                h = self.img_size[1] if self.img_size else 32
+                w = self.img_size[0] if self.img_size else 32
+                img = np.zeros((h, w), dtype=np.uint8)
+            if self.img_size is not None:
+                img = cv2.resize(img, self.img_size)
+            x = img.astype(np.float32) / 255.0
+            x = x[np.newaxis, :, :]   # (1, H, W)
+        else:
+            img = cv2.imread(path, cv2.IMREAD_COLOR)
+            if img is None:
+                h = self.img_size[1] if self.img_size else 32
+                w = self.img_size[0] if self.img_size else 32
+                img = np.zeros((h, w, 3), dtype=np.uint8)
+            if self.img_size is not None:
+                img = cv2.resize(img, self.img_size)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            x = img.astype(np.float32) / 255.0
+            x = x.transpose(2, 0, 1)   # (3, H, W)
+
         return x, np.array(label, dtype=np.int32)
 
 
-def _detect_and_load_dataset(path: str):
+def _detect_and_load_dataset(path: str, img_size=None):
     """
     自动检测数据集格式并返回 Dataset 实例。
-    支持：
-      1. MNIST/类 MNIST pkl 文件（含 train_img/train_label 等 key）
-      2. 类别子目录图片文件夹
-      3. 根目录直接存放图片
+    img_size: None = 原图；(W, H) = resize 到指定尺寸。
     """
     # ── 格式 1：目录下含 .pkl 文件 ──
     pkl_files = [f for f in os.listdir(path) if f.endswith('.pkl')]
     if pkl_files:
-        return MNISTPickleDataset(pkl_path=os.path.join(path, pkl_files[0]))
+        return MNISTPickleDataset(pkl_path=os.path.join(path, pkl_files[0]),
+                                  out_size=img_size)
 
     # ── 格式 2 & 3：图片文件夹 ──
-    return FolderImageDataset(root=path)
+    return FolderImageDataset(root=path, img_size=img_size)
 
 
 class MNISTPickleDataset(Dataset):
@@ -107,11 +137,13 @@ class MNISTPickleDataset(Dataset):
       - {'x_train': (N,784), 'y_train': (N,), ...}
       - ((x_train, y_train), (x_test, y_test))  ← Keras 格式
     合并 train + test，由上层 val_split 负责划分。
-    图像被 reshape 为 (1, 28, 28) float32 归一化数组。
+    图像统一 resize 到 out_size（默认 32×32），与 FolderImageDataset 一致，
+    避免 28×28 MNIST 送入为 32×32 设计的 LeNet 等模型时 FC 层维度不匹配。
     """
-    def __init__(self, pkl_path: str, img_shape=(28, 28), transform=None):
+    def __init__(self, pkl_path: str, img_shape=(28, 28), out_size=None, transform=None):
         self.pkl_path = pkl_path
         self.img_shape = img_shape
+        self.out_size  = out_size   # None = 不 resize，保持 img_shape 原始大小
         self._images: np.ndarray = None   # (N, 1, H, W) float32
         self._labels: np.ndarray = None   # (N,) int32
         self._classes: list[str] = [str(i) for i in range(10)]
@@ -169,6 +201,16 @@ class MNISTPickleDataset(Dataset):
         elif imgs.ndim == 3:
             imgs = imgs[:, np.newaxis, :, :]
 
+        # 可选 resize
+        if self.out_size is not None:
+            oH, oW = self.out_size
+            if imgs.shape[2] != oH or imgs.shape[3] != oW:
+                import cv2
+                resized = np.empty((len(imgs), 1, oH, oW), dtype=np.float32)
+                for i, img in enumerate(imgs):
+                    resized[i, 0] = cv2.resize(img[0], (oW, oH), interpolation=cv2.INTER_LINEAR)
+                imgs = resized
+
         self._images = imgs
         self._labels = labels
 
@@ -197,7 +239,7 @@ def load_dataset_for_training(dataset_id: str, batch_size: int, val_split: float
     if meta is None:
         raise ValueError(f"Dataset {dataset_id} not found")
 
-    dataset = _detect_and_load_dataset(meta["path"])
+    dataset = _detect_and_load_dataset(meta["path"], img_size=meta.get("img_size"))
     n = len(dataset)
     if n == 0:
         raise ValueError("Dataset is empty")

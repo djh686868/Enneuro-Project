@@ -17,8 +17,8 @@ from dataset import AutoDriveDataset, preprocess_image
 from model import ResNet18AutoDrive
 
 
-batch_size = 64
-total_epochs = 60
+batch_size = 32
+total_epochs = 1
 lr =1e-4
 
 model = ResNet18AutoDrive()

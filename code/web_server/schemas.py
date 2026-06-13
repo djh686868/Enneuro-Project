@@ -21,6 +21,8 @@ class DatasetRegisterRequest(BaseModel):
     path: str
     name: str
     description: str = ""
+    resize_w: int = 0   # 0 = 不 resize，保持原图
+    resize_h: int = 0
 
 
 class TrainingStartRequest(BaseModel):
