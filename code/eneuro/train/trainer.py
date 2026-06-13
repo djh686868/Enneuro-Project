@@ -225,28 +225,44 @@ class Trainer:
         loss_sum, acc_sum, sample_num = 0., 0, 0
         y_true_list = []
         y_pred_list = []
-        
+        last_y_hat_shape, last_yb_ndim = None, None
+
         for batch_idx, (Xb, yb) in enumerate(data_loader):
             Xb = as_Tensor(Xb)
             yb = as_Tensor(yb)
             Xb = Xb.to(device)
             yb = yb.to(device)
-            y_hat = self.model(Xb)
 
-            # 兼容单标签分类与多标签分类
-            if yb.ndim > 1:
-                y_true_cls = yb.argmax(axis=1)
-                if _is_multilabel(y_hat, yb):
-                    # 多标签任务（如 SigmoidWithLoss）
-                    y_target = yb
+            if training:
+                y_hat = self.model(Xb)
+
+                # 兼容单标签分类与多标签分类
+                if yb.ndim > 1:
+                    y_true_cls = yb.argmax(axis=1)
+                    if _is_multilabel(y_hat, yb):
+                        y_target = yb
+                    else:
+                        y_target = y_true_cls
                 else:
-                    # 单标签分类 one-hot -> class index
-                    y_target = y_true_cls
-            else:
-                y_true_cls = yb
-                y_target = yb
+                    y_true_cls = yb
+                    y_target = yb
 
-            loss = self.loss_fn(y_hat, y_target)
+                loss = self.loss_fn(y_hat, y_target)
+            else:
+                with Config.using_config('enable_backprop', False), Config.using_config('train', False):
+                    y_hat = self.model(Xb)
+
+                    if yb.ndim > 1:
+                        y_true_cls = yb.argmax(axis=1)
+                        if _is_multilabel(y_hat, yb):
+                            y_target = yb
+                        else:
+                            y_target = y_true_cls
+                    else:
+                        y_true_cls = yb
+                        y_target = yb
+
+                    loss = self.loss_fn(y_hat, y_target)
 
             batch_acc_info = _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=self.loss_fn)
             if batch_acc_info[0] is None:
@@ -263,11 +279,11 @@ class Trainer:
                     changed update to step
                 '''
                 self.optimizer.step()
-            
+
             # 收集预测结果和真实标签，用于绘制混淆矩阵
             y_true_list.append(y_true)
             y_pred_list.append(y_pred)
-            
+
             loss_sum += loss.data * len(Xb)
             if not np.isnan(batch_acc):
                 acc_sum += batch_acc * len(Xb)
@@ -280,19 +296,31 @@ class Trainer:
                         self.visualizer.update_train(loss.data, batch_acc, batch_size=len(Xb))
                     else:
                         self.visualizer.update_val(loss.data, batch_acc, batch_size=len(Xb))
-            
+
             # self.loss_meter.update(loss.data)
             # self.acc_meter.update(acc_sum / sample_num)
-            
+
             if verbose:
                 display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
                 progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, display_acc)
+
+            last_y_hat_shape, last_yb_ndim = y_hat.shape, yb.ndim
+            # 显式释放计算图根节点，防止旧图与新图同时驻留显存导致峰值翻倍
+            del y_hat, loss, y_target, y_true_cls
+
         if verbose:
             sys.stdout.write('\n')
-        
+
         # 计算epoch级别的指标
         epoch_loss = loss_sum / sample_num
-        epoch_acc = acc_sum / sample_num if acc_sum != 0 else (np.nan if _is_regression(y_hat, yb, loss_fn=self.loss_fn) else 0.0)
+        if sample_num > 0 and last_y_hat_shape is not None:
+            loss_name = getattr(self.loss_fn, "__name__", "")
+            is_reg = loss_name == "meanSquaredError" or (
+                len(last_y_hat_shape) > 1 and last_y_hat_shape[-1] == 1 and last_yb_ndim == 1
+            )
+        else:
+            is_reg = False
+        epoch_acc = acc_sum / sample_num if acc_sum != 0 else (np.nan if is_reg else 0.0)
         
         # 更新visualizer的预测结果
         if self.visualizer is not None and not training:

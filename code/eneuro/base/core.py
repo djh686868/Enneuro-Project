@@ -366,11 +366,12 @@ class Function:
             这里需要使用python原装的max
             否则会出现list没有max方法的问题
         '''
-        self.generation = max([x.generation for x in inputs])
-        for output in outputs:
-            output.set_creator(self)
-        self.inputs = inputs
-        self.outputs = [weakref.ref(output) for output in outputs]#弱引用，避免循环引用
+        if Config.enable_backprop:
+            self.generation = max([x.generation for x in inputs])
+            for output in outputs:
+                output.set_creator(self)
+            self.inputs = inputs
+            self.outputs = [weakref.ref(output) for output in outputs]
         current_layer_name = self.__class__.__name__.lower()
         if VISUAL_CONFIG["ENABLE_ALL_LAYERS"] and self.visualize:
             self._print_output(outputs[0])
