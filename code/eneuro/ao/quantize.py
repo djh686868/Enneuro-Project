@@ -28,7 +28,7 @@ class QuantizeManager:
                 # 查找量化子图
                 between_func_nodes, end_output_nodes, end_fdq_nodes = QuantizeManager.get_sub_quantize_nodes(graph=graph, start_fq_node=node)
                 if len(end_output_nodes) > 0:
-                    raise RuntimeWarning(f"存在未闭合的FakeQuantize: node.id={node.id}")
+                    raise RuntimeError(f"存在未闭合的FakeQuantize: node.id={node.id}")
                 
                 # FQ替换为Quantize
                 new_func = f.Quantize(scale, zero_point, dtype)
@@ -125,12 +125,14 @@ class QuantizeManager:
                         continue
                     else:
                         fq_depth -= 1
+                else:
+                    between_func_nodes.add(suc_node)
+
                 # FQ
-                elif isinstance(suc_node.true_obj, f.FakeQuantize):
+                if isinstance(suc_node.true_obj, f.FakeQuantize):
                     fq_depth += 1
                 # cur_node -> suc_node -> suc_tensor_node(Tensor)
                 suc_tensor_nodes = graph.get_successors(suc_node) 
                 node_stack.extend([(suc_tensor_node, fq_depth) for suc_tensor_node in suc_tensor_nodes])
-                between_func_nodes.add(suc_node)
 
         return between_func_nodes, end_output_nodes, end_fdq_nodes

@@ -60,11 +60,10 @@ class Graph:
 
     def add_node(self, obj: Any) -> Node:
         """添加节点，如果对象已存在则返回已有节点"""
-        obj_id = id(obj)
+        true_obj = get_obj(obj)
+        obj_id = id(true_obj)
         if obj_id in self.obj_to_node:
             return self.obj_to_node[obj_id]
-
-        true_obj = get_obj(obj)
 
         if isinstance(true_obj, Tensor):
             ntype = NodeType.TENSOR
@@ -201,7 +200,7 @@ class Graph:
         del self.input_edges[node.id]
         del self.output_edges[node.id]
         # 从对象映射中删除（注意：可能有多个对象指向同一个 obj？这里假设每个 obj 只出现一次）
-        obj_id = id(node.obj)
+        obj_id = id(node.true_obj)
         if obj_id in self.obj_to_node:
             del self.obj_to_node[obj_id]
 
