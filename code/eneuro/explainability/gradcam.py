@@ -19,6 +19,41 @@ from ..utils import capture_features, capture_gradients
 from ..utils.hooks import HookRegistry
 
 
+def _is_leaf_layer(layer) -> bool:
+    """叶子层：自身没有子 Layer 属性（Conv2d、BatchNorm、Linear 等）。"""
+    for v in vars(layer).values():
+        if isinstance(v, Layer) and v is not layer:
+            return False
+    return True
+
+
+def _last_leaf_in_sequence(container, registry: HookRegistry):
+    """
+    在本轮前向传播的调用序列中，找到属于 container 内部的最后一个叶子层。
+    用于处理 Sequential/ResidualBlock 等容器层无法直接捕获梯度的情况。
+    """
+    # 收集 container 内所有子 Layer 的 id
+    child_ids = set()
+    def _collect(layer):
+        for v in vars(layer).values():
+            if isinstance(v, Layer) and v is not layer:
+                child_ids.add(id(v))
+                _collect(v)
+    _collect(container)
+
+    # 从调用序列末尾往前找，返回最后一个属于 container 内部的叶子层
+    seq = registry._layer_call_sequence
+    id_to_ref = registry._id_to_layer_ref
+    for lid in reversed(seq):
+        if lid in child_ids:
+            ref = id_to_ref.get(lid)
+            if ref is not None:
+                layer = ref()
+                if layer is not None and _is_leaf_layer(layer):
+                    return layer
+    return None
+
+
 class GradCAM:
     """
     Grad-CAM 类激活映射计算
@@ -101,25 +136,27 @@ class GradCAM:
             registry.stop_recording_sequence()
 
             # ── Step 2: 确定梯度捕获层 ─────────────────────────────────────
-            # 优先使用后继层（绕开 BN backward 使梯度均值归零的问题），
-            # 但要求后继层与目标层通道数一致（BatchNorm 通道数必定相同），
-            # Conv→Conv 时若通道数不同则不使用后继层。
-            act_channels = self._feature_storage['output'].shape[1]  # 目标层输出通道数
+            act_channels = self._feature_storage['output'].shape[1]
 
             gradient_layer = registry.get_successor_layer(self.target_layer)
             if gradient_layer is not None:
                 successor_type = type(gradient_layer).__name__
-                # BatchNorm 输入/输出通道数与前层相同 → 安全
                 if 'BatchNorm' in successor_type:
-                    pass  # 使用后继层
+                    pass  # BN 后继通道数必定相同，可直接用
                 else:
-                    # 其他类型：只有通道数确实能对上才使用
                     succ_out = getattr(gradient_layer, 'out_channels',
                                getattr(gradient_layer, 'out_size', None))
                     if succ_out != act_channels:
                         gradient_layer = self.target_layer
             else:
                 gradient_layer = self.target_layer
+
+            # 容器层（Sequential/ResidualBlock）在 backward 时不触发钩子，
+            # 改为使用该容器内部最后被调用的叶子层。
+            if not _is_leaf_layer(gradient_layer):
+                leaf = _last_leaf_in_sequence(gradient_layer, registry)
+                if leaf is not None:
+                    gradient_layer = leaf
 
             # 梯度钩子可在前向之后注册：backward 时按层的 _hook_manager 查找，
             # 与前向时间无关，因此仍能被正确触发。

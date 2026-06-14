@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-from web_server.routers import models, datasets, training, explain, system
+from web_server.routers import models, datasets, training, explain, system, monitor
 
 app = FastAPI(title="EnNeuro Web API", version="1.0.0")
 
@@ -24,6 +24,7 @@ app.include_router(datasets.router)
 app.include_router(training.router)
 app.include_router(explain.router)
 app.include_router(system.router)
+app.include_router(monitor.router)
 
 
 @app.get("/ping")

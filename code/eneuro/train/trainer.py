@@ -61,7 +61,7 @@ def _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=None):
 
 class Trainer:
     def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False,
-                 on_epoch_end=None, on_batch_end=None):
+                 on_epoch_end=None, on_batch_end=None, on_train_end=None):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -69,6 +69,7 @@ class Trainer:
         self.visualizer = visualizer
         self._on_epoch_end = on_epoch_end
         self._on_batch_end = on_batch_end
+        self._on_train_end = on_train_end
         self._stop_requested = False
 
         # 早停
@@ -244,6 +245,10 @@ class Trainer:
                 if verbose:
                     print("\nTraining stopped by external request.")
                 break
+
+        # 训练结束回调
+        if self._on_train_end is not None:
+            self._on_train_end({"total_epochs": epoch + 1})
 
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0

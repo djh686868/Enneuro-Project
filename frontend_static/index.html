@@ -89,6 +89,7 @@
   <a class="active" onclick="showPage('designer', this)">模型设计</a>
   <a onclick="showPage('datasets', this)">数据集</a>
   <a onclick="showPage('training', this)">训练控制台</a>
+  <a onclick="showPage('monitor', this)">外部监控</a>
   <a onclick="showPage('visual', this)">可视化</a>
   <span style="margin-left:auto;font-size:12px;color:#8b949e" id="apiStatus">连接中…</span>
 </nav>
@@ -261,6 +262,140 @@
   </div>
 </div>
 
+<!-- ======== 外部监控 ======== -->
+<div class="page" id="page-monitor">
+  <h2>外部监控</h2>
+  <div class="grid-2">
+    <!-- 左：run 列表 -->
+    <div class="card">
+      <h3>运行列表 <button class="btn btn-blue" onclick="monRefreshRuns()" style="float:right;font-size:11px;padding:4px 10px">刷新</button></h3>
+      <div id="monRunList" style="font-size:13px;color:#8b949e;margin-top:8px">点击刷新加载</div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #30363d">
+        <div style="font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:10px">如何接入监控？</div>
+
+        <!-- 步骤 1 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">1</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在脚本顶部 import 区加入（文件第一段 import 末尾）
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">from eneuro.utils.monitor_client import MonitorClient</pre>
+          </div>
+        </div>
+
+        <!-- 步骤 2 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">2</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在 <code style="background:#21262d;padding:1px 5px;border-radius:3px">Trainer(...)</code>
+              创建语句的<strong style="color:#f0883e">上方</strong>加一行
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">monitor = MonitorClient(run_name="my_exp")</pre>
+          </div>
+        </div>
+
+        <!-- 步骤 3 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">3</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在 <code style="background:#21262d;padding:1px 5px;border-radius:3px">Trainer(...)</code>
+              调用中追加两个参数（<strong style="color:#f0883e">不改其余参数</strong>）
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">trainer = Trainer(model, loss_fn, optimizer, ...原有参数...,
+                  on_epoch_end=monitor.on_epoch_end,
+                  on_batch_end=monitor.on_batch_end,
+                  on_train_end=monitor.on_train_end)</pre>
+          </div>
+        </div>
+
+        <!-- 提示 -->
+        <div style="background:#0d2a0d;border:1px solid #238636;border-radius:6px;
+                    padding:8px 12px;font-size:12px;color:#3fb950;margin-top:4px">
+          脚本末尾无需任何改动。Web 服务器未启动时 MonitorClient 会静默跳过，不影响正常训练。
+        </div>
+      </div>
+    </div>
+    <!-- 右：当前 run 状态 -->
+    <div class="card">
+      <h3>当前监控</h3>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span id="monRunName" style="font-size:14px;color:#e6edf3;font-weight:600">未选择</span>
+        <span id="monRunBadge" class="badge badge-idle">idle</span>
+        <button id="monStopBtn" class="btn btn-danger" onclick="monDisconnect()"
+                style="font-size:11px;padding:4px 10px;display:none">断开</button>
+      </div>
+      <!-- epoch 进度 -->
+      <div style="display:flex;gap:16px;font-size:12px;color:#8b949e;flex-wrap:wrap">
+        <span>已运行 <strong id="monElapsed" style="color:#e6edf3;font-family:monospace">—</strong></span>
+        <span>Epoch <strong id="monEpoch" style="color:#e6edf3">—</strong></span>
+        <span>Batch <strong id="monBatch" style="color:#e6edf3">—</strong></span>
+        <span>Train Loss <strong id="monLoss" style="color:#f0883e">—</strong></span>
+        <span>Train Acc <strong id="monAcc" style="color:#3fb950">—</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch 实时曲线 -->
+  <div class="card">
+    <h3>Batch 实时曲线 <span id="monBatchLabel" style="font-size:11px;color:#8b949e"></span></h3>
+    <div id="monChartBatch" style="width:100%;height:240px;border-radius:8px"></div>
+  </div>
+
+  <!-- Epoch 曲线 -->
+  <div class="grid-2">
+    <div class="card">
+      <h3>Epoch Loss</h3>
+      <div id="monChartLoss" style="width:100%;height:260px;border-radius:8px"></div>
+    </div>
+    <div class="card">
+      <h3>Epoch Accuracy</h3>
+      <div id="monChartAcc" style="width:100%;height:260px;border-radius:8px"></div>
+    </div>
+  </div>
+
+  <!-- 系统资源（复用同一套 gauge，点进来时刷新） -->
+  <div class="card">
+    <h3>系统资源</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">CPU 使用率</div>
+        <div id="monGaugeCpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monCpuPct">--</span>%
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">内存使用率</div>
+        <div id="monGaugeMem" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monMemPct">--</span>%
+          <span id="monMemGB" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+      <div id="monGpuCol">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">GPU 使用率</div>
+        <div id="monGaugeGpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monGpuPct">--</span>%
+          <span id="monGpuMem" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ======== 可视化 ======== -->
 <div class="page" id="page-visual">
   <h2>推理可视化</h2>
@@ -317,6 +452,17 @@ function showPage(name, el) {
       if (_gauCpu)    _gauCpu.resize()
       if (_gauMem)    _gauMem.resize()
       if (_gauGpu)    _gauGpu.resize()
+    })
+  }
+  if (name === 'monitor') {
+    monRefreshRuns()
+    requestAnimationFrame(() => {
+      if (_monChartBatch) _monChartBatch.resize()
+      if (_monChartLoss)  _monChartLoss.resize()
+      if (_monChartAcc)   _monChartAcc.resize()
+      if (_monGauCpu)     _monGauCpu.resize()
+      if (_monGauMem)     _monGauMem.resize()
+      if (_monGauGpu)     _monGauGpu.resize()
     })
   }
 }
@@ -625,35 +771,106 @@ async function loadSavedList() {
     div.innerHTML = '<span style="color:#8b949e;font-size:12px">暂无已保存模型</span>'
     return
   }
-  div.innerHTML = files.map(f =>
-    `<div style="display:flex;justify-content:space-between;align-items:center;
+  div.innerHTML = files.map(f => {
+    const cfgBtn = f.has_config
+      ? `<button onclick="importConfig('${f.config_file || f.file}')"
+                 style="background:#6e40c9;border:none;color:#fff;cursor:pointer;
+                        font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap">
+           导入架构
+         </button>`
+      : `<span style="font-size:11px;color:#484f58;padding:3px 10px">无 config</span>`
+    return `<div style="display:flex;justify-content:space-between;align-items:center;
                  padding:5px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:12px">
-       <div>
+       <div style="overflow:hidden;margin-right:8px">
          <span style="color:#e6edf3">${f.file}</span>
          <span style="color:#8b949e;margin-left:8px">${f.model_type}</span>
        </div>
-       <button onclick="loadSavedModel('${f.file}')"
-               style="background:#238636;border:none;color:#fff;cursor:pointer;
-                      font-size:11px;padding:3px 10px;border-radius:4px">加载</button>
+       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+         ${cfgBtn}
+         <button id="loadBtn_${CSS.escape(f.file)}" onclick="loadSavedModel('${f.file}')"
+                 style="background:#238636;border:none;color:#fff;cursor:pointer;
+                        font-size:11px;padding:3px 10px;border-radius:4px;min-width:52px">加载</button>
+       </div>
      </div>`
-  ).join('')
+  }).join('')
 }
 
-async function loadSavedModel(file) {
-  const r = await fetch(`${API}/models/saved/load`, {
+async function importConfig(file) {
+  const infoEl = document.getElementById('builtModelInfo')
+  if (infoEl) infoEl.innerHTML = `<span style="color:#8b949e">正在导入架构 ${file}…</span>`
+  const r = await fetch(`${API}/models/saved/import-config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file }),
   }).then(r => r.json())
   if (r.ok) {
-    document.getElementById('builtModelInfo').innerHTML =
-      `✓ 加载成功！<br>model_id: <span class="mono">${r.model_id}</span><br>类型: ${r.model_type}`
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#a371f7">✓ 架构已导入（未加载权重）</span>　` +
+      `model_id: <span class="mono">${r.model_id}</span>　类型: ${r.model_type}`
     document.getElementById('trModelId').value = r.model_id
     document.getElementById('visModelId').value = r.model_id
     await loadModelList()
     await showArchitecture(r.model_id, r.model_type)
   } else {
-    alert('加载失败: ' + JSON.stringify(r))
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#f85149">✗ 导入失败：${r.detail || JSON.stringify(r)}</span>`
+  }
+}
+
+async function loadSavedModel(file, targetModelId) {
+  // 按钮改为加载中状态
+  const btn = document.getElementById(`loadBtn_${CSS.escape(file)}`)
+  const infoEl = document.getElementById('builtModelInfo')
+  if (btn) { btn.textContent = '加载中…'; btn.disabled = true }
+  if (infoEl) infoEl.innerHTML = '<span style="color:#8b949e">正在加载 ' + file + '…</span>'
+
+  const body = { file }
+  if (targetModelId) body.target_model_id = targetModelId
+
+  const resp = await fetch(`${API}/models/saved/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const r = await resp.json()
+
+  const _resetBtn = () => {
+    if (btn) { btn.textContent = '加载'; btn.disabled = false }
+  }
+
+  // 文件缺少 model_config —— 让用户从已构建模型中选一个
+  if (!resp.ok && r.detail === 'NO_CONFIG') {
+    _resetBtn()
+    const models = await fetch(`${API}/models`).then(r => r.json())
+    if (!models.length) {
+      if (infoEl) infoEl.innerHTML =
+        '<span style="color:#f85149">该文件缺少 model_config，且当前无已构建模型。<br>请先在「模型设计」中构建同结构模型。</span>'
+      return
+    }
+    const options = models.map(m => `${m.model_id}（${m.type}）`).join('\n')
+    const chosen = prompt(
+      `该文件缺少 model_config，无法自动重建模型。\n` +
+      `请输入已构建模型的 ID（权重将注入其中）：\n\n` +
+      `当前已构建模型：\n${options}`,
+      models[0].model_id
+    )
+    if (chosen) await loadSavedModel(file, chosen.trim())
+    return
+  }
+
+  if (r.ok) {
+    _resetBtn()
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#3fb950">✓ 加载成功</span>　` +
+      `model_id: <span class="mono">${r.model_id}</span>　类型: ${r.model_type}`
+    document.getElementById('trModelId').value = r.model_id
+    document.getElementById('visModelId').value = r.model_id
+    await loadModelList()
+    await showArchitecture(r.model_id, r.model_type)
+  } else {
+    _resetBtn()
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#f85149">✗ 加载失败：${r.detail || JSON.stringify(r)}</span>`
   }
 }
 
@@ -1159,6 +1376,241 @@ async function pollSysStats() {
       document.getElementById('sysGpuPct').textContent = 'N/A'
     }
   } catch (e) { /* ignore */ }
+}
+
+// ===== 外部监控 =====
+let _monEs = null          // EventSource
+let _monChartBatch = null
+let _monChartLoss  = null
+let _monChartAcc   = null
+let _monGauCpu = null, _monGauMem = null, _monGauGpu = null
+let _monSysTimer = null
+let _monElapsedTimer = null
+let _monStartTs = null     // unix timestamp (s) when run started
+const _monBatch = { labels: [], loss: [], acc: [] }
+const _monEpoch = { epochs: [], trainLoss: [], valLoss: [], trainAcc: [], valAcc: [] }
+const MON_BATCH_WINDOW = 80
+
+function _initMonCharts() {
+  if (_monChartBatch) return
+  _monChartBatch = echarts.init(document.getElementById('monChartBatch'), 'dark')
+  _monChartLoss  = echarts.init(document.getElementById('monChartLoss'),  'dark')
+  _monChartAcc   = echarts.init(document.getElementById('monChartAcc'),   'dark')
+
+  const baseOpt = (names, yLabel) => ({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: names, textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: { type: 'category', data: [], boundaryGap: false,
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' } },
+    yAxis: { type: 'value', name: yLabel, nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      splitLine: { lineStyle: { color: '#21262d' } } },
+    series: names.map((n, i) => ({
+      name: n, type: 'line', smooth: true, data: [],
+      lineStyle: { width: 2 }, symbol: 'circle', symbolSize: 5,
+      itemStyle: { color: i === 0 ? '#58a6ff' : '#3fb950' },
+    })),
+    grid: { left: '8%', right: '3%', top: '40px', bottom: '36px' },
+  })
+  _monChartLoss.setOption(baseOpt(['Train Loss', 'Val Loss'], 'Loss'))
+  _monChartAcc.setOption(baseOpt(['Train Acc',  'Val Acc'],  'Acc'))
+
+  _monChartBatch.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Batch Loss', 'Batch Acc'], textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: { type: 'category', data: [], boundaryGap: false,
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { show: false } },
+    yAxis: [
+      { type: 'value', name: 'Loss', nameTextStyle: { color: '#8b949e' },
+        axisLabel: { color: '#8b949e' }, splitLine: { lineStyle: { color: '#21262d' } } },
+      { type: 'value', name: 'Acc', min: 0, max: 1,
+        axisLabel: { color: '#8b949e' }, splitLine: { show: false } },
+    ],
+    series: [
+      { name: 'Batch Loss', type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#f0883e' }, yAxisIndex: 0 },
+      { name: 'Batch Acc',  type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#a371f7' }, yAxisIndex: 1 },
+    ],
+    grid: { left: '8%', right: '8%', top: '40px', bottom: '24px' },
+  })
+
+  _monGauCpu = _makeGauge('monGaugeCpu', 'CPU', '#f0883e')
+  _monGauMem = _makeGauge('monGaugeMem', 'MEM', '#58a6ff')
+  _monGauGpu = _makeGauge('monGaugeGpu', 'GPU', '#3fb950')
+}
+
+function _fmtElapsed(sec) {
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
+  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`
+  return `${s}s`
+}
+
+function _monResetData() {
+  _monBatch.labels = []; _monBatch.loss = []; _monBatch.acc = []
+  _monEpoch.epochs = []; _monEpoch.trainLoss = []; _monEpoch.valLoss = []
+  _monEpoch.trainAcc = []; _monEpoch.valAcc = []
+}
+
+function _monHandleEvent(ev) {
+  const d = ev
+  if (d.type === 'done') {
+    document.getElementById('monRunBadge').className   = 'badge badge-finished'
+    document.getElementById('monRunBadge').textContent = '已完成'
+    clearInterval(_monElapsedTimer); _monElapsedTimer = null
+    return
+  }
+  if (d.type === 'batch') {
+    _monBatch.labels.push(`E${d.epoch}B${d.batch}`)
+    _monBatch.loss.push(d.batch_loss ?? null)
+    _monBatch.acc.push(d.batch_acc  ?? null)
+    if (_monBatch.labels.length > MON_BATCH_WINDOW) {
+      _monBatch.labels.shift(); _monBatch.loss.shift(); _monBatch.acc.shift()
+    }
+    document.getElementById('monBatch').textContent = d.batch
+    document.getElementById('monEpoch').textContent = d.epoch
+    if (d.batch_loss != null) document.getElementById('monLoss').textContent = d.batch_loss.toFixed(4)
+    if (d.batch_acc  != null) document.getElementById('monAcc').textContent  = d.batch_acc.toFixed(4)
+    document.getElementById('monBatchLabel').textContent =
+      `epoch ${d.epoch} · batch ${d.batch}`
+    _monChartBatch && _monChartBatch.setOption({
+      xAxis:  { data: [..._monBatch.labels] },
+      series: [{ data: [..._monBatch.loss] }, { data: [..._monBatch.acc] }],
+    })
+  } else if (d.type === 'epoch') {
+    const ep = d.epoch
+    if (!_monEpoch.epochs.includes(ep)) _monEpoch.epochs.push(ep)
+    const idx = _monEpoch.epochs.indexOf(ep)
+    const set = (arr, val) => { while (arr.length <= idx) arr.push(null); arr[idx] = val ?? null }
+    set(_monEpoch.trainLoss, d.train_loss); set(_monEpoch.valLoss, d.val_loss)
+    set(_monEpoch.trainAcc,  d.train_acc);  set(_monEpoch.valAcc,  d.val_acc)
+    document.getElementById('monEpoch').textContent = ep
+    _monChartLoss && _monChartLoss.setOption({
+      xAxis:  { data: [..._monEpoch.epochs] },
+      series: [{ data: [..._monEpoch.trainLoss] }, { data: [..._monEpoch.valLoss] }],
+    })
+    _monChartAcc && _monChartAcc.setOption({
+      xAxis:  { data: [..._monEpoch.epochs] },
+      series: [{ data: [..._monEpoch.trainAcc] }, { data: [..._monEpoch.valAcc] }],
+    })
+  }
+}
+
+async function monRefreshRuns() {
+  const runs = await fetch(`${API}/monitor/runs`).then(r => r.json())
+  const div = document.getElementById('monRunList')
+  if (!runs.length) { div.innerHTML = '<span style="color:#8b949e">暂无运行记录</span>'; return }
+  div.innerHTML = runs.map(r => {
+    const ago = Math.round((Date.now()/1000 - r.last_ts))
+    const active = ago < 10
+    return `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <strong style="font-size:13px">${r.run_name}</strong>
+        <span class="mono" style="margin-left:8px;font-size:11px">${r.run_id}</span><br>
+        <span style="font-size:11px;color:#8b949e">${r.events} 事件 · ${ago}s 前更新</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="badge ${active ? 'badge-running' : 'badge-finished'}">${active ? '活跃' : '结束'}</span>
+        <button class="btn btn-blue" style="font-size:11px;padding:4px 10px"
+          onclick="monConnect('${r.run_id}','${r.run_name}',${r.start_ts})">连接</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:4px 10px"
+          onclick="monDeleteRun('${r.run_id}')">删除</button>
+      </div>
+    </div>`
+  }).join('')
+}
+
+function monConnect(runId, runName, startTs) {
+  monDisconnect()
+  _monResetData()
+  _initMonCharts()
+  requestAnimationFrame(() => {
+    _monChartBatch && _monChartBatch.resize()
+    _monChartLoss  && _monChartLoss.resize()
+    _monChartAcc   && _monChartAcc.resize()
+    _monGauCpu && _monGauCpu.resize()
+    _monGauMem && _monGauMem.resize()
+    _monGauGpu && _monGauGpu.resize()
+  })
+
+  document.getElementById('monRunName').textContent  = runName
+  document.getElementById('monRunBadge').className   = 'badge badge-running'
+  document.getElementById('monRunBadge').textContent = '连接中'
+  document.getElementById('monStopBtn').style.display = ''
+
+  // 已运行时间：从 run 的 start_ts 开始计
+  _monStartTs = startTs || (Date.now() / 1000)
+  clearInterval(_monElapsedTimer)
+  const elapsedEl = document.getElementById('monElapsed')
+  const tick = () => {
+    elapsedEl.textContent = _fmtElapsed(Math.floor(Date.now() / 1000 - _monStartTs))
+  }
+  tick()
+  _monElapsedTimer = setInterval(tick, 1000)
+
+  _monEs = new EventSource(`${API}/monitor/stream/${runId}`)
+  _monEs.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data)
+      _monHandleEvent(d)
+      if (d.type !== 'done') {
+        document.getElementById('monRunBadge').className   = 'badge badge-running'
+        document.getElementById('monRunBadge').textContent = '实时'
+      }
+    } catch {}
+  }
+  _monEs.onerror = () => {
+    document.getElementById('monRunBadge').className   = 'badge badge-stopped'
+    document.getElementById('monRunBadge').textContent = '中断'
+  }
+
+  // 系统资源轮询
+  clearInterval(_monSysTimer)
+  _monSysTimer = setInterval(async () => {
+    try {
+      const s = await fetch(`${API}/system/stats`).then(r => r.json())
+      const cpu = Math.round(s.cpu_percent), mem = Math.round(s.mem_percent)
+      document.getElementById('monCpuPct').textContent = cpu
+      document.getElementById('monMemPct').textContent = mem
+      document.getElementById('monMemGB').textContent  = `${s.mem_used_gb}/${s.mem_total_gb}GB`
+      _monGauCpu && _monGauCpu.setOption({ series: [{ data: [{ value: cpu }] }] })
+      _monGauMem && _monGauMem.setOption({ series: [{ data: [{ value: mem }] }] })
+      if (s.gpu) {
+        const gpu = Math.round(s.gpu.gpu_percent)
+        document.getElementById('monGpuPct').textContent = gpu
+        document.getElementById('monGpuMem').textContent = `${s.gpu.mem_used_gb}/${s.gpu.mem_total_gb}GB`
+        _monGauGpu && _monGauGpu.setOption({ series: [{ data: [{ value: gpu }] }] })
+        document.getElementById('monGpuCol').style.opacity = '1'
+      } else {
+        document.getElementById('monGpuCol').style.opacity = '0.35'
+      }
+    } catch {}
+  }, 2000)
+}
+
+function monDisconnect() {
+  if (_monEs) { _monEs.close(); _monEs = null }
+  clearInterval(_monSysTimer);    _monSysTimer = null
+  clearInterval(_monElapsedTimer); _monElapsedTimer = null
+  document.getElementById('monRunBadge').className   = 'badge badge-idle'
+  document.getElementById('monRunBadge').textContent = 'idle'
+  document.getElementById('monStopBtn').style.display = 'none'
+  document.getElementById('monElapsed').textContent  = '—'
+}
+
+async function monDeleteRun(runId) {
+  await fetch(`${API}/monitor/runs/${runId}`, { method: 'DELETE' })
+  monRefreshRuns()
 }
 
 // ===== 初始化 =====

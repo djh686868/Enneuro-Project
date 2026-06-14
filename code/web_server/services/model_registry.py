@@ -10,6 +10,18 @@ from eneuro.nn.module import (
 )
 from eneuro.nn.module import Layer
 
+# 尝试导入自定义模型（路径不在包内时跳过）
+try:
+    import importlib.util, os as _os
+    _donkey_path = _os.path.join(_os.path.dirname(__file__),
+                                 "../../../tests/test_donkey/model.py")
+    _spec = importlib.util.spec_from_file_location("donkey_model", _donkey_path)
+    _mod  = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    ResNet18AutoDrive = _mod.ResNet18AutoDrive
+except Exception:
+    ResNet18AutoDrive = None
+
 LAYER_REGISTRY: dict[str, type] = {
     "Linear":         Linear,
     "Conv2d":         Conv2d,
@@ -22,6 +34,7 @@ LAYER_REGISTRY: dict[str, type] = {
     "AlexNet":        AlexNet,
     "VGG":            VGG,
     "ResNet18":       ResNet18,
+    **({"ResNet18AutoDrive": ResNet18AutoDrive} if ResNet18AutoDrive else {}),
 }
 
 PRESET_MODELS = {
@@ -93,6 +106,12 @@ PRESET_MODELS = {
         "description": "ResNet-18 灰度输入版本，1 通道",
         "recommended_input": "1 通道图像，建议 ≥ 32×32",
     },
+    **( {"ResNet18AutoDrive": {
+        "type": "ResNet18AutoDrive",
+        "params": {"in_channels": 3, "num_classes": 1},
+        "description": "ResNet-18 端到端自动驾驶（回归），7×7 标准 stem，输出方向角（num_classes=1）",
+        "recommended_input": "3 通道图像，160×120",
+    }} if ResNet18AutoDrive else {} ),
 }
 
 _model_store: dict[str, Layer] = {}
@@ -107,6 +126,13 @@ def build_model_from_config(config: dict) -> tuple[str, Layer]:
         preset = PRESET_MODELS[preset_name]
         cls = LAYER_REGISTRY[preset["type"]]
         model = cls(**preset["params"])
+    elif "type" in config and config["type"]:
+        # 直接类型格式：{"type": "ResNet18AutoDrive", "params": {...}}
+        type_name = config["type"]
+        if type_name not in LAYER_REGISTRY:
+            raise ValueError(f"Unknown model type: {type_name}")
+        cls = LAYER_REGISTRY[type_name]
+        model = cls(**config.get("params", {}))
     elif "layers" in config and config["layers"]:
         layers = []
         for layer_cfg in config["layers"]:
@@ -117,7 +143,7 @@ def build_model_from_config(config: dict) -> tuple[str, Layer]:
             layers.append(cls(**layer_cfg.get("params", {})))
         model = Sequential(*layers)
     else:
-        raise ValueError("Config must have 'preset' or 'layers'")
+        raise ValueError("Config must have 'preset', 'type', or 'layers'")
 
     model_id = str(uuid.uuid4())[:8]
     _model_store[model_id] = model

@@ -17,15 +17,36 @@ def _b64_png(arr_hw: np.ndarray) -> str:
     return base64.b64encode(buf).decode()
 
 
-def _parse_image(b64_str: str) -> np.ndarray:
+def _get_model_in_channels(model) -> int:
+    """从模型第一个卷积层读取 in_channels，默认返回 1。"""
+    for attr in ('stem_conv', 'conv1'):
+        layer = getattr(model, attr, None)
+        if layer is not None and hasattr(layer, 'in_channels'):
+            return int(layer.in_channels)
+    for v in vars(model).values():
+        if hasattr(v, 'in_channels'):
+            return int(v.in_channels)
+    return 1
+
+
+def _parse_image(b64_str: str, in_channels: int = 1) -> np.ndarray:
     data = base64.b64decode(b64_str)
     arr = np.frombuffer(data, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise ValueError("Failed to decode image")
-    img = cv2.resize(img, (32, 32))
-    img = img.astype(np.float32) / 255.0
-    return img[np.newaxis, np.newaxis, :, :]  # (1, 1, H, W)
+    if in_channels == 1:
+        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError("Failed to decode image")
+        img = cv2.resize(img, (32, 32))
+        x = img.astype(np.float32) / 255.0
+        return x[np.newaxis, np.newaxis, :, :]    # (1, 1, H, W)
+    else:
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("Failed to decode image")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (160, 120))          # 保持 DonkeyCar 原始宽高比
+        x = img.astype(np.float32) / 255.0
+        return x.transpose(2, 0, 1)[np.newaxis]   # (1, 3, H, W)
 
 
 def _find_layer(model, name: str):
@@ -48,7 +69,8 @@ def _find_layer(model, name: str):
 def run_gradcam(model_id: str, image_b64: str, layer_name: str, class_idx=None):
     from eneuro.base.core import Tensor
     model = get_model(model_id)
-    img_np = _parse_image(image_b64)
+    in_ch = _get_model_in_channels(model)
+    img_np = _parse_image(image_b64, in_channels=in_ch)
     x = Tensor(img_np, requires_grad=False)
 
     target_layer = _find_layer(model, layer_name)
@@ -58,8 +80,15 @@ def run_gradcam(model_id: str, image_b64: str, layer_name: str, class_idx=None):
     DISPLAY = 224
     heatmap_big = cv2.resize(heatmap, (DISPLAY, DISPLAY), interpolation=cv2.INTER_LINEAR)
     h_color = cv2.applyColorMap((heatmap_big * 255).astype(np.uint8), cv2.COLORMAP_JET)
-    orig_u8 = (img_np[0, 0] * 255).astype(np.uint8)
-    orig_bgr = cv2.cvtColor(cv2.resize(orig_u8, (DISPLAY, DISPLAY)), cv2.COLOR_GRAY2BGR)
+
+    # 原始图像叠加：灰度/彩色均处理
+    if in_ch == 1:
+        orig_u8 = (img_np[0, 0] * 255).astype(np.uint8)
+        orig_bgr = cv2.cvtColor(cv2.resize(orig_u8, (DISPLAY, DISPLAY)), cv2.COLOR_GRAY2BGR)
+    else:
+        orig_rgb = (img_np[0].transpose(1, 2, 0) * 255).astype(np.uint8)
+        orig_bgr = cv2.cvtColor(cv2.resize(orig_rgb, (DISPLAY, DISPLAY)), cv2.COLOR_RGB2BGR)
+
     overlay = cv2.addWeighted(orig_bgr, 0.5, h_color, 0.5, 0)
 
     _, buf_h = cv2.imencode(".png", h_color)
@@ -73,7 +102,8 @@ def run_gradcam(model_id: str, image_b64: str, layer_name: str, class_idx=None):
 def run_feature_maps(model_id: str, image_b64: str, layer_name: str):
     from eneuro.base.core import Tensor
     model = get_model(model_id)
-    img_np = _parse_image(image_b64)
+    in_ch = _get_model_in_channels(model)
+    img_np = _parse_image(image_b64, in_channels=in_ch)
     x = Tensor(img_np, requires_grad=False)
 
     target_layer = _find_layer(model, layer_name)

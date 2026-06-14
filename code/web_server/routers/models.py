@@ -40,21 +40,34 @@ def build_model(req: BuildModelRequest):
     return BuildModelResponse(model_id=model_id, model_type=type(model).__name__)
 
 
+def _config_path(weights_file: str) -> str:
+    """foo.json → foo.config.json"""
+    stem = weights_file[:-5] if weights_file.endswith(".json") else weights_file
+    return stem + ".config.json"
+
+
 @router.get("/saved/list")
 def list_saved_models():
-    files = [f for f in os.listdir(SAVED_MODELS_DIR) if f.endswith(".json")]
+    all_files = set(os.listdir(SAVED_MODELS_DIR))
+    # 只列出权重文件（排除 *.config.json）
+    weight_files = [f for f in sorted(all_files)
+                    if f.endswith(".json") and not f.endswith(".config.json")]
     result = []
-    for f in sorted(files):
+    for f in weight_files:
         try:
             with open(os.path.join(SAVED_MODELS_DIR, f), encoding="utf-8") as fp:
                 meta = json.load(fp)
-            result.append({
-                "file":       f,
-                "model_type": meta.get("model_type", "?"),
-                "model_id":   meta.get("model_id", "?"),
-            })
         except Exception:
-            result.append({"file": f, "model_type": "?", "model_id": "?"})
+            meta = {}
+        cfg_file = _config_path(f)
+        has_config = bool(meta.get("model_config")) or (cfg_file in all_files)
+        result.append({
+            "file":       f,
+            "model_type": meta.get("model_type", "?"),
+            "model_id":   meta.get("model_id", "?"),
+            "has_config": has_config,
+            "config_file": cfg_file if cfg_file in all_files else None,
+        })
     return result
 
 
@@ -68,12 +81,66 @@ def load_saved_model(body: dict):
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    state  = data.get("model_state", data)   # 兼容旧格式（顶层即 state）
+    config = data.get("model_config", {})
+
+    # 若权重文件内无 config，尝试配套 .config.json
+    if not config:
+        cfg_path = os.path.join(SAVED_MODELS_DIR, _config_path(os.path.basename(filename)))
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, encoding="utf-8") as f:
+                    cfg_data = json.load(f)
+                config = cfg_data.get("model_config", {})
+            except Exception:
+                pass
+
+    # ── 情况 A：有 model_config，自动重建模型再加载权重 ──────────────────
+    if config:
+        try:
+            model_id, model = build_model_from_config(config)
+            model.from_dict(state)
+            _model_store[model_id]   = model
+            _model_configs[model_id] = config
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return {"ok": True, "model_id": model_id, "model_type": type(model).__name__,
+                "needs_target": False}
+
+    # ── 情况 B：无 model_config，需要指定已构建模型的 target_model_id ──────
+    target_id = body.get("target_model_id", "")
+    if not target_id:
+        raise HTTPException(
+            status_code=400,
+            detail="NO_CONFIG"   # 前端捕获此特定 code，弹出目标模型选择
+        )
+    if target_id not in _model_store:
+        raise HTTPException(status_code=404, detail=f"Model {target_id} not found")
+    try:
+        model = _model_store[target_id]
+        model.from_dict(state)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "model_id": target_id, "model_type": type(model).__name__,
+            "needs_target": False}
+
+
+@router.post("/saved/import-config")
+def import_config(body: dict):
+    """仅导入架构（不加载权重），支持 .config.json 或含 model_config 的普通权重文件。"""
+    filename = body.get("file", "")
+    if not filename:
+        raise HTTPException(status_code=400, detail="file is required")
+    path = os.path.join(SAVED_MODELS_DIR, os.path.basename(filename))
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
     config = data.get("model_config", {})
     if not config:
-        raise HTTPException(status_code=400, detail="No model_config in file")
+        raise HTTPException(status_code=400, detail="该文件不含 model_config，无法导入架构")
     try:
         model_id, model = build_model_from_config(config)
-        model.from_dict(data["model_state"])
         _model_store[model_id]   = model
         _model_configs[model_id] = config
     except Exception as e:
