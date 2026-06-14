@@ -20,16 +20,24 @@ size = 32
 X = np.random.randn(2, 3, size, size).astype(np.float32)  # 2张3通道图像
 y = np.array([0, 5], dtype=np.int32)                   # 2个样本的标签，范围[0, 9]
 
-num_fuse = 10
+num_fuse = 1
 sequential_content = []
 for i in range(num_fuse):
     sequential_content.append(Conv2d(3,3,1,1))
     sequential_content.append(BatchNorm2d(3))
     sequential_content.append(F.relu)
-sequential_content.append(F.flatten)
-sequential_content.append(Linear(100))
-sequential_content.append(Linear(100))
-sequential_content.append(Linear(10))
+sequential_content.extend([
+    F.flatten,
+    F.FakeQuantize('int8', 0.9),
+    Linear(100),
+    F.FakeDequantize(),
+    F.FakeQuantize('int8', 0.9),
+    Linear(100),
+    F.FakeDequantize(),
+    F.FakeQuantize('int8', 0.9),
+    Linear(10),
+    F.FakeDequantize(),
+])
 
 def test_normal(epoch_num = 10):
     # 创建模型
@@ -56,6 +64,16 @@ def test_normal(epoch_num = 10):
     #save_checkpoint(model, optimizer, num_epoch, "normal_checkpoint.json")
     
     print(f"normal training complete in {duration:.4f}s")
+
+    with Config.no_grad():
+        tic = time.time()
+        for epoch in range(epoch_num):
+            y_hat = model(Tensor(X))
+
+        toc = time.time()
+    duration = toc - tic
+    print(f"normal testing complete in {duration:.4f}s")
+
     return duration
 
 def test_executor(epoch_num = 10):
@@ -86,6 +104,16 @@ def test_executor(epoch_num = 10):
     toc = time.time()
     duration = toc - tic
     print(f"executor training complete in {duration:.4f}s")
+
+    with Config.no_grad():
+        tic = time.time()
+        for epoch in range(epoch_num):
+            y_hat = executor.forward(Tensor(X))
+
+        toc = time.time()
+    duration = toc - tic
+    print(f"executor testing complete in {duration:.4f}s")
+
     return duration
 
 def test_ao(epoch_num = 10):
@@ -332,11 +360,55 @@ def test_autocast():
 
     print("\n自动混合精度测试完成！")
 
+def test_quantize_executor(epoch_num = 10, dtype = 'int8'):
+    from eneuro.ao import model_to_graph, graph_to_executor, graph_apply_fuse, graph_apply_cast, executor_apply_quantize
+    # 创建模型
+    model = Sequential(*sequential_content)
+    model.to('cuda')
+
+    sample_input = Tensor(X) # 样例输入
+
+    graph = model_to_graph(model, sample_input) # 转换为图
+    graph.visualize('origin_graph.dot') # 保存为.dot文件便于查看
+    
+    executor = graph_to_executor(graph)
+
+    # 创建损失函数和优化器
+    loss_fn = CrossEntropyLoss()
+    optimizer = SGD(executor.params(), lr=0.1)
+    
+    tic = time.time()
+    for epoch in range(epoch_num):
+        y_hat = executor.forward(Tensor(X))
+        loss = loss_fn(y_hat, Tensor(y))
+        
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    toc = time.time()
+    duration = toc - tic
+    print(f"quantize executor training complete in {duration:.4f}s")
+
+
+    executor = executor_apply_quantize(executor=executor)
+    executor.graph.visualize('quantized_graph.dot')
+    with Config.no_grad():
+        tic = time.time()
+        for epoch in range(epoch_num):
+            y_hat = executor.forward(Tensor(X))
+
+        toc = time.time()
+    duration = toc - tic
+    print(f"quantize executor testing complete in {duration:.4f}s")
+
+    return duration
+
 if __name__ == "__main__":
     #test_auto_fuse()
     
     test_normal()
     test_executor()
-    test_autocast_executor()
+    test_quantize_executor()
         
 

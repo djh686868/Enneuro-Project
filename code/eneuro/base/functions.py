@@ -2638,29 +2638,36 @@ class FakeQuantize(Function):
         # 更新alpha和beta
         if self.alpha is None:
             self.alpha = x_min
+        elif x_min < self.alpha:
+            self.alpha = x_min
         else:
             self.alpha = self.gamma * self.alpha + (1 - self.gamma) * x_min
 
         if self.beta is None:
+            self.beta = x_max
+        elif x_max > self.beta:
             self.beta = x_max
         else:
             self.beta = self.gamma * self.beta + (1 - self.gamma) * x_max
         
         # 计算缩放因子
         self.scale = (self.beta - self.alpha) / (self.qmax - self.qmin) if self.beta > self.alpha else 1.0
-        self.zero_point = xp.round(-self.alpha / self.scale).clip(self.qmin, self.qmax) if self.scale > 0 else 0
+        self.zero_point = xp.round(self.qmin - (self.alpha / self.scale)).clip(self.qmin, self.qmax) if self.scale > 0 else 0
 
         # 量化并反量化
         q_x = xp.round(x / self.scale + self.zero_point).clip(self.qmin, self.qmax) if self.scale > 0 else x
         fq_x = (q_x - self.zero_point) * self.scale if self.scale > 0 else x
+        #print(f'xmin - alpha = {x_min - self.alpha}')
+        #print(f'beta - max = {self.beta - x_max}')
+        #print(f'average offset = {xp.average(fq_x - x)}')
         return fq_x
 
     def backward(self, gys):
         # Straight-Through Estimator: 梯度直接传递，不考虑量化误差
         return gys
     
-def fake_quantize(x, dtype='int8'):
-    return FakeQuantize(dtype=dtype)(x)
+def fake_quantize(x, dtype='int8', gamma=0.9):
+    return FakeQuantize(dtype=dtype, gamma=gamma)(x)
 
 class FakeDequantize(Function):
     def forward(self, *xs):
@@ -2702,15 +2709,16 @@ class Quantize(Function):
         return q_x.astype(self.dtype)
 
     def backward(self, gys):
-        # Straight-Through Estimator: 梯度直接传递，不考虑量化误差
         return gys
 
 def quantize(x, scale, zero_point, dtype='int8'):
     return Quantize(scale, zero_point, dtype=dtype)(x)
 
 class Dequantize(Function):
-    def __init__(self, scale, zero_point):
+    def __init__(self, scale, zero_point, dtype='int8'):
         super().__init__()
+        self.dtype = dtype
+        self.qmin, self.qmax = get_qmin_qmax(dtype)
         self.scale = scale
         self.zero_point = zero_point
 
@@ -2721,8 +2729,7 @@ class Dequantize(Function):
         return deq_x
 
     def backward(self, gys):
-        # Straight-Through Estimator: 梯度直接传递，不考虑量化误差
         return gys
 
-def dequantize(x, scale, zero_point):
-    return Dequantize(scale, zero_point)(x)
+def dequantize(x, scale, zero_point, dtype='int8'):
+    return Dequantize(scale, zero_point, dtype)(x)

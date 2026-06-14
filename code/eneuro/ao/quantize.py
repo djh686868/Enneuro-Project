@@ -5,131 +5,134 @@ import numpy as np
 import weakref
 
 from .graph import Graph, Node, NodeType
+from .executor import GraphExecutor
 
 from ..base.core import Tensor, Function, Config
 from ..nn.optim import Optimizer
 from ..base.functions import to_xp, get_array_module
 from ..base import functions as f
 
-"""
 class QuantizeManager:
     @staticmethod
-    def apply_quantize(graph: Graph) -> Graph:
-        # 初始化
-        for node in graph.nodes.values():
-            node.quantized = False
-            node.dequantized = False
-
-        FQ_state_stack = []
+    def apply_quantize(executor: GraphExecutor) -> GraphExecutor:
+        graph = executor.graph
         # 按拓扑序遍历所有 Function 节点
         for node in graph.topological_order():
             if node.type != NodeType.FUNCTION: # 排除tensor
                 continue
 
-            func_cls = node.true_obj.__class__
-            # 遇到FQ/DFQ节点，进行替换并标记后继节点
-            if func_cls in (f.FakeQuantize, f.FakeDequantize):
-                pre_nodes = graph.get_predecessors(node)
-                suc_nodes = graph.get_successors(node)
-                for suc_node in suc_nodes:
-                    if func_cls == f.FakeQuantize:
-                        suc_node.quantized = True
-                        suc_node.dequantized = False
-                    else:
-                        suc_node.dequantized = True
-                        suc_node.quantized = False
+            # 遇到FQ节点
+            if isinstance(node.true_obj, f.FakeQuantize):
+                scale, zero_point, dtype = node.true_obj.scale, node.true_obj.zero_point, node.true_obj.dtype
 
-                if func_cls == f.FakeQuantize:
-                    # 替换为真正的Quantize节点
-                    new_func = f.Quantize(node.true_obj.scale, node.true_obj.zero_point, node.true_obj.dtype)
-                    graph.replace_subgraph([node], pre_nodes, suc_nodes, new_func)
-                    FQ_state_stack.append([node.true_obj.scale, node.true_obj.zero_point, node.true_obj.dtype]) # 记录FQ状态以供后续使用
-                else:
-                    # 替换为真正的Dequantize节点
-                    new_func = f.Dequantize(node.true_obj.scale, node.true_obj.zero_point)
-                    graph.replace_subgraph([node], pre_nodes, suc_nodes, new_func)
-                    FQ_state_stack.pop()
-
-            # 其他Function节点
-            else:
-                # 获取前继节点状态
-                pre_nodes = graph.get_predecessors(node)
-                pre_quantized = True
-                for pre in pre_nodes:
-                    if pre.quantized == False:
-                        pre_quantized = False
-                        break
-
-                pre_dequantized = True
-                for pre in pre_nodes:
-                    if pre.dequantized == False:
-                        pre_dequantized = False
-                        break
+                # 查找量化子图
+                between_func_nodes, end_output_nodes, end_fdq_nodes = QuantizeManager.get_sub_quantize_nodes(graph=graph, start_fq_node=node)
+                if len(end_output_nodes) > 0:
+                    raise RuntimeError(f"存在未闭合的FakeQuantize: node.id={node.id}")
                 
-                # 后继节点
-                suc_nodes = graph.get_successors(node)
+                # FQ替换为Quantize
+                new_func = f.Quantize(scale, zero_point, dtype)
+                graph.replace_subgraph([node], graph.get_predecessors(node), graph.get_successors(node), new_func)
+                # FDQ替换为Dequantize
+                for fdq_node in end_fdq_nodes:
+                    new_func = f.Dequantize(scale, zero_point, dtype)
+                    graph.replace_subgraph([fdq_node], graph.get_predecessors(fdq_node), graph.get_successors(fdq_node), new_func)
 
-                if len(FQ_state_stack) > 0: # 只有在当前处于FQ状态（即上游有FQ节点）时才考虑添加Quantize/Dequantize
-                    # 可以量化的Function
-                    if func_cls in f.QuantizeRegistry.can_quantize:
-                        # 若输入不是量化的，则添加Quantize
-                        if not pre_quantized:
-                            '''
-                            pre(Tensor) -> node
-                            变为
-                            pre(Tensor) -> Quantize -> Tensor -> node 
-                            '''
-                            scale, zero_point, dtype = FQ_state_stack[-1] 
-                            new_func = f.Quantize(scale=scale, zero_point=zero_point, dtype=dtype)
+                for between_func_node in between_func_nodes:
+                    # 可量化
+                    if between_func_node.true_obj.__class__ in f.QuantizeRegistry.can_quantize:
+                        # func_node <- pre_node(Tensor)
+                        pre_nodes = graph.get_predecessors(between_func_node)
+                        for pre_node in pre_nodes:
+                            # 参数节点直接量化
+                            if pre_node in executor.param_nodes:
+                                pre_node.dtype = dtype
+                                assert isinstance(pre_node.true_obj, Tensor)
+                                pre_node.true_obj.data = pre_node.true_obj.data.astype(dtype)
+                            # 其他节点忽略（不处理 未量化节点->func_node 的情况）
+                            else:
+                                pass
+                    # 不可量化
+                    else:
+                        '''
+                        pre_node -> 
+                        between_func_node -> suc_node ->
+                        suc_func
+                        变为
+                        pre_node -> 
+                        [Dequantize -> Tensor ->] 
+                        between_func_node -> suc_node ->
+                        [Quantize -> Tensor ->]
+                        suc_func
+                        '''
+                        pre_nodes = graph.get_predecessors(between_func_node)
+                        # 去除原来的边
+                        graph._remove_edges_to_node(between_func_node, keep_set=set(pre_nodes))
+                        for pre_node in pre_nodes:
+                            # 添加节点
+                            dequantize_func = f.Dequantize(scale=scale, zero_point=zero_point, dtype=dtype)
+                            tensor = dequantize_func(pre_node.true_obj)
+                            dequantize_node = graph.add_node(dequantize_func)
+                            tensor_node = graph.add_node(weakref.ref(tensor))
+                            # 添加边
+                            graph.add_edge(pre_node, dequantize_node)
+                            graph.add_edge(dequantize_node, tensor_node)
+                            graph.add_edge(tensor_node, between_func_node)
+
+                        suc_nodes = graph.get_successors(between_func_node)
+                        for suc_node in suc_nodes:
+                            suc_func_nodes = graph.get_successors(suc_node)
                             # 去除原来的边
-                            graph._remove_edges_to_node(node, keep_set=set(pre_nodes))
-                            for pre in pre_nodes:
+                            graph._remove_edges_from_node(suc_node, keep_set=set(suc_func_nodes))
+                            for suc_func in suc_func_nodes:
                                 # 添加节点
                                 quantize_func = f.Quantize(scale=scale, zero_point=zero_point, dtype=dtype)
-                                tensor = quantize_func(pre.true_obj)
+                                tensor = quantize_func(suc_node.true_obj)
                                 quantize_node = graph.add_node(quantize_func)
                                 tensor_node = graph.add_node(weakref.ref(tensor))
-                                tensor_node.quantized = True
-                                tensor_node.dequantized = False
                                 # 添加边
-                                graph.add_edge(pre, quantize_node)
+                                graph.add_edge(suc_node, quantize_node)
                                 graph.add_edge(quantize_node, tensor_node)
-                                graph.add_edge(tensor_node, node)
-                        
-                        # 标记后继节点
-                        for suc in suc_nodes:
-                            suc.quantized = True
-                            suc.dequantized = False
+                                graph.add_edge(tensor_node, suc_func)
+        executor.__init__(graph)
+        return executor
 
-                    # 不能量化的Function
+    @staticmethod
+    def get_sub_quantize_nodes(graph: Graph, start_fq_node: Node):
+        between_func_nodes = set() # FunctionNodes
+        end_output_nodes = set() # TensorNodes: output
+        end_fdq_nodes = set() # FuctionNodes: FDQ
+
+        nodes = graph.get_successors(start_fq_node) # fq_node -> node(Tensor)
+        fq_depth = 1
+        node_stack = [(node, fq_depth) for node in nodes]
+        # DFS
+        while len(node_stack) > 0:
+            cur_node, fq_depth = node_stack.pop() # TensorNode
+
+            # cur_node -> suc_node(Function)
+            suc_nodes = graph.get_successors(cur_node)
+            # 无出边：是output，且没有遇到FDQ
+            if len(suc_nodes) == 0:
+                end_output_nodes.add(cur_node)
+
+            # DFS搜索
+            for suc_node in suc_nodes:
+                # FDQ
+                if isinstance(suc_node.true_obj, f.FakeDequantize):
+                    if fq_depth == 1:
+                        end_fdq_nodes.add(suc_node)
+                        continue
                     else:
-                        # 若输入不是反量化的，则添加Dequantize
-                        if not pre_dequantized:
-                            scale, zero_point, dtype = FQ_state_stack[-1] 
-                            new_func = f.Dequantize(scale=scale, zero_point=zero_point)
-                            '''
-                            pre(Tensor) -> node
-                            变为
-                            pre(Tensor) -> Dequantize -> Tensor -> node 
-                            '''
-                            # 去除原来的边
-                            graph._remove_edges_to_node(node, keep_set=set(pre_nodes))
-                            for pre in pre_nodes:
-                                # 添加节点
-                                dequantize_func = f.Dequantize(scale=scale, zero_point=zero_point)
-                                tensor = dequantize_func(pre.true_obj)
-                                dequantize_node = graph.add_node(dequantize_func)
-                                tensor_node = graph.add_node(weakref.ref(tensor))
-                                tensor_node.quantized = False
-                                tensor_node.dequantized = True
-                                # 添加边
-                                graph.add_edge(pre, dequantize_node)
-                                graph.add_edge(dequantize_node, tensor_node)
-                                graph.add_edge(tensor_node, node)
-                    
-                        # 标记后继节点
-                        for suc in suc_nodes:
-                            suc.quantized = False
-                            suc.dequantized = True
+                        fq_depth -= 1
+                else:
+                    between_func_nodes.add(suc_node)
 
-#"""
+                # FQ
+                if isinstance(suc_node.true_obj, f.FakeQuantize):
+                    fq_depth += 1
+                # cur_node -> suc_node -> suc_tensor_node(Tensor)
+                suc_tensor_nodes = graph.get_successors(suc_node) 
+                node_stack.extend([(suc_tensor_node, fq_depth) for suc_tensor_node in suc_tensor_nodes])
+
+        return between_func_nodes, end_output_nodes, end_fdq_nodes
