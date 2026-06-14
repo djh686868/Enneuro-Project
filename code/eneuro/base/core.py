@@ -321,9 +321,9 @@ def from_dict(d: dict) -> None:  # 序列化读取数据
 def as_array(x):
     """将输入转换为numpy/cupy数组"""
     if isinstance(x, Tensor):
-        if x.device == 'cpu' and isinstance(x.data, cp.ndarray):
+        if x.device == 'cpu' and has_cupy and isinstance(x.data, cp.ndarray):
             x.data = cp.asnumpy(x.data)
-        if (x.device == 'cuda' or x.device == 'gpu') and isinstance(x.data, np.ndarray):
+        if (x.device == 'cuda' or x.device == 'gpu') and has_cupy and isinstance(x.data, np.ndarray):
             x.data = cp.asarray(x.data)
         return as_array(x.data)
     
@@ -393,7 +393,7 @@ class Function:
     def _print_output(self, output_tensor):
         # 和Layer类的_print_output逻辑完全一致（复制粘贴）
         data = output_tensor.data if hasattr(output_tensor, 'data') else output_tensor
-        if isinstance(data, cp.ndarray):
+        if has_cupy and isinstance(data, cp.ndarray):
             data = cp.asnumpy(data)
         if data.ndim != 4:
             return
