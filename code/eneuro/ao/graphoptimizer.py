@@ -3,7 +3,7 @@ from .pattern import PatternMatcher, FusionRegistry
 from .graph import Graph
 from .executor import GraphExecutor
 from .cast import AutoCastManager
-#from .quantize import QuantizeManager
+from .quantize import QuantizeManager
 
 class GraphOptimizer:
     @staticmethod
@@ -35,12 +35,9 @@ class GraphOptimizer:
         graph = AutoCastManager.apply_cast(graph=graph, dtype=dtype)
         return graph
     
-    """
     @staticmethod
-    def graph_apply_quantize(graph) -> Graph:
-        graph = QuantizeManager.apply_quantize(graph=graph)
-        return graph
-    #"""
+    def executor_apply_quantize(executor: GraphExecutor) -> GraphExecutor:
+        return QuantizeManager.apply_quantize(executor=executor)
     
     @staticmethod
     def auto_optimize(model, sample_input) -> GraphExecutor:

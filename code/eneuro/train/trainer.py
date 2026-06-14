@@ -336,10 +336,10 @@ class Trainer:
                         self.visualizer.update_train(loss.data, batch_acc, batch_size=len(Xb))
                     else:
                         self.visualizer.update_val(loss.data, batch_acc, batch_size=len(Xb))
-            
+
             # self.loss_meter.update(loss.data)
             # self.acc_meter.update(acc_sum / sample_num)
-            
+
             if verbose:
                 display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
                 progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, display_acc)
@@ -350,7 +350,7 @@ class Trainer:
 
         if verbose:
             sys.stdout.write('\n')
-        
+
         # 计算epoch级别的指标
         epoch_loss = loss_sum / sample_num
         if sample_num > 0 and last_y_hat_shape is not None:
