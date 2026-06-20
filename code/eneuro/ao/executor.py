@@ -13,7 +13,7 @@ class GraphExecutor:
         self.param_nodes: List[Node] = []      # Parameter 节点
         self.data_input_nodes: List[Node] = [] # 数据输入节点（非 Parameter）
         
-        for node in self.graph.nodes.values():
+        for node in self.graph.topological_order():
             if node.type != NodeType.TENSOR:
                 continue
             # 没有入边的 Tensor 节点
