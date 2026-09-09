@@ -1,10 +1,19 @@
 # executor.py
+import numpy as np
 from typing import List, Union, Dict, Any, Optional
 from ..base.core import Tensor, Function
 from ..base.parameter import Parameter
 from .graph import Graph, Node, NodeType
+from ..utils import StateDict
 
-class GraphExecutor:
+try:
+    import cupy as cp
+    has_cupy = True
+except ImportError:
+    has_cupy = False
+
+
+class GraphExecutor(StateDict):
     def __init__(self, graph: Graph):
         self.graph = graph
         self.topo_order = graph.topological_order()
@@ -13,7 +22,7 @@ class GraphExecutor:
         self.param_nodes: List[Node] = []      # Parameter 节点
         self.data_input_nodes: List[Node] = [] # 数据输入节点（非 Parameter）
         
-        for node in self.graph.nodes.values():
+        for node in self.graph.topological_order():
             if node.type != NodeType.TENSOR:
                 continue
             # 没有入边的 Tensor 节点
@@ -25,6 +34,124 @@ class GraphExecutor:
 
     def params(self) -> List[Parameter]:
         return [node.true_obj for node in self.param_nodes]
+
+    def _to_pure_list(self, tensor_like):
+        if tensor_like is None:
+            return None
+        if isinstance(tensor_like, np.ndarray):
+            return tensor_like.tolist()
+        if has_cupy and isinstance(tensor_like, cp.ndarray):
+            return cp.asnumpy(tensor_like).tolist()
+        if isinstance(tensor_like, (list, tuple)):
+            return [self._to_pure_list(item) for item in tensor_like]
+        if isinstance(tensor_like, (int, float, bool, str)):
+            return tensor_like
+        try:
+            return float(tensor_like)
+        except (TypeError, ValueError):
+            return str(tensor_like)
+
+    def _from_pure_list(self, pure_list):
+        if isinstance(pure_list, list):
+            return [self._from_pure_list(item) for item in pure_list]
+        return pure_list
+
+    def to_dict(self) -> dict:
+        """序列化当前 executor 的参数状态。"""
+        params_dict = {}
+        for node in self.param_nodes:
+            param = node.true_obj
+            if not isinstance(param, Parameter):
+                continue
+
+            data = param.data
+            grad = param.grad.data if param.grad is not None and hasattr(param.grad, 'data') else None
+
+            params_dict[str(node.id)] = {
+                'node_id': node.id,
+                'name': getattr(param, 'name', None),
+                'data': self._to_pure_list(data),
+                'grad': self._to_pure_list(grad) if grad is not None else None,
+                'requires_grad': getattr(param, 'requires_grad', True),
+                'shape': list(data.shape) if data is not None and hasattr(data, 'shape') else None,
+                'dtype': str(data.dtype) if data is not None and hasattr(data, 'dtype') else None,
+            }
+
+        return {
+            'metadata': {
+                'graph_class': self.graph.__class__.__name__,
+                'version': '1.0',
+                'param_count': len(self.param_nodes),
+                'data_input_count': len(self.data_input_nodes),
+            },
+            'graph': {
+                'topo_order': [n.id for n in self.topo_order],
+                'param_node_ids': [n.id for n in self.param_nodes],
+                'data_input_node_ids': [n.id for n in self.data_input_nodes],
+                'edges': [
+                    [src_id, dst_id]
+                    for src_id, succs in self.graph.output_edges.items()
+                    for dst_id in succs
+                ],
+            },
+            'params': params_dict,
+        }
+        
+    def from_dict(self, d: dict) -> None:
+        """按现有图中的参数节点，还原参数值和梯度状态。"""
+        params_data = d.get('params', {})
+        current_by_id = {node.id: node.true_obj for node in self.param_nodes}
+
+        if 'graph' in d:
+            graph_meta = d['graph']
+            expected_ids = set(graph_meta.get('param_node_ids', []))
+            if expected_ids and expected_ids != {node.id for node in self.param_nodes}:
+                # 兼容性校验：图参数集合不一致时仅忽略，不重建图对象
+                pass
+
+        for raw_key, param_data in params_data.items():
+            try:
+                key = int(raw_key)
+            except (TypeError, ValueError):
+                key = raw_key
+
+            param = None
+            if key in current_by_id:
+                param = current_by_id[key]
+            else:
+                for node in self.param_nodes:
+                    p = node.true_obj
+                    if getattr(p, 'name', None) == param_data.get('name'):
+                        param = p
+                        break
+
+            if param is None:
+                continue
+
+            xp = np
+            if hasattr(param, 'data') and param.data is not None:
+                xp = np
+                if has_cupy and isinstance(param.data, cp.ndarray):
+                    xp = cp
+
+            if param_data.get('data') is not None:
+                param.data = xp.array(self._from_pure_list(param_data['data']))
+
+            grad_value = param_data.get('grad')
+            if grad_value is not None:
+                grad_tensor = Tensor(
+                    xp.array(self._from_pure_list(grad_value)),
+                    requires_grad=False,
+                    name=getattr(param, 'name', None),
+                    device='cuda' if xp is cp else 'cpu'
+                )
+                param.grad = grad_tensor
+            else:
+                param.grad = None
+
+            param.requires_grad = param_data.get('requires_grad', getattr(param, 'requires_grad', True))
+            if 'name' in param_data:
+                param.name = param_data['name']
 
     def forward(self, *inputs: Tensor) -> Union[Tensor, List[Tensor]]:
         """

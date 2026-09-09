@@ -19,3 +19,4 @@ tests/data.zip
 *.jpg
 *.jpeg
 CLAUDE.md
+.vscode/

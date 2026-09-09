@@ -13,7 +13,7 @@ from eneuro.nn.module import CNNWithPooling,Sequential,Conv2d,BatchNorm2d,Linear
 from eneuro.nn.loss import CrossEntropyLoss
 from eneuro.nn.optim import SGD
 from eneuro.ao import GraphOptimizer,GraphExecutor,trace_context, GradScaler
-from eneuro.utils import save_checkpoint,load_checkpoint
+from eneuro.utils import save_checkpoint,load_checkpoint, Serializer
 
 # 创建简单的测试数据
 size = 32
@@ -87,6 +87,8 @@ def test_executor(epoch_num = 10):
     #graph.visualize('origin_graph.dot')
     executor = GraphOptimizer.graph_to_executor(graph)
 
+    Serializer.load(executor, 'test_executor_save.json')
+
     # 创建损失函数和优化器
     loss_fn = CrossEntropyLoss()
     optimizer = SGD(model.params(), lr=0.1)
@@ -113,6 +115,8 @@ def test_executor(epoch_num = 10):
         toc = time.time()
     duration = toc - tic
     print(f"executor testing complete in {duration:.4f}s")
+
+    Serializer.save(executor, 'test_executor_save.json')
 
     return duration
 
@@ -407,8 +411,8 @@ def test_quantize_executor(epoch_num = 10, dtype = 'int8'):
 if __name__ == "__main__":
     #test_auto_fuse()
     
-    test_normal()
+    #test_normal()
     test_executor()
-    test_quantize_executor()
+    #test_quantize_executor()
         
 
