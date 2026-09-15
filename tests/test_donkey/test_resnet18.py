@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import sys
+import os
+import json
 from pathlib import Path
 
 import numpy as np
 
-# 确保能导入 code 下的包
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent / 'code'))
 
 from eneuro.base import as_Tensor, Config  # noqa: E402
@@ -25,10 +26,11 @@ def progress_bar(current, total, epoch, loss, acc, width=30): # 进度条
     """current: 当前已处理样本数；total: 总样本数"""
     percent = current / total
     filled = int(width * percent)
-    bar = '█' * filled + '░' * (width - filled)
+    bar = '=' * filled + '-' * (width - filled)
     sys.stdout.write(
-        f'\rEpoch {epoch+1:3d} |{bar}| {percent*100:5.1f}% ({current:5}/{total:5}) '
-        f' | loss={loss:.4f} | acc={acc:.3f}'
+        '\rEpoch {:3d} |{}| {:5.1f}% ({:5}/{:5}) | loss={:.4f} | acc={:.3f}'.format(
+            epoch+1, bar, percent*100, current, total, loss, acc
+        )
     )
     sys.stdout.flush()
 
@@ -156,6 +158,10 @@ from eneuro.base import as_Tensor
 from eneuro.data import Dataset
 
 
+def default_transform(x):
+    return x.transpose(2, 0, 1)
+
+
 class SteeringDataset(Dataset):
     """
     从目录读取转向角图片的数据集。
@@ -178,9 +184,7 @@ class SteeringDataset(Dataset):
         self.root_dir = Path(root_dir).expanduser().resolve()
         self.images = []      # 存储图片完整路径
         self.angles = []      # 存储原始转向角 (float)
-        self.prepare()
 
-        # 若用户未提供 target_transform，则使用默认的类别映射
         if target_transform is None:
             target_transform = self._default_target_transform
         super().__init__(train, transform, target_transform)
@@ -292,7 +296,14 @@ def print_gpu_mem():
         used = total - free
         print(f"GPU memory: used={used/1024**2:.1f}MB, free={free/1024**2:.1f}MB, total={total/1024**2:.1f}MB")
 
-def train(num_epoch=10, option='normal', autocast=False):
+def count_params(model):
+    total_params = 0
+    for param in model.params():
+        if param.data is not None:
+            total_params += np.prod(param.shape)
+    return total_params
+
+def train(num_epoch=10, option='normal', autocast=False, num_workers=0):
     print_gpu_mem()
 
     batch_size = 16
@@ -300,25 +311,32 @@ def train(num_epoch=10, option='normal', autocast=False):
     from eneuro.base.functions import has_cupy
     from eneuro.data import DataLoader
     import time
-    # 实例化数据集
+    import psutil
+    
     current_dir = Path(__file__).resolve().parent
     data_path = current_dir / 'data'
     dataset = SteeringDataset(
         root_dir=str(data_path),
-        transform=lambda x: x.transpose(2, 0, 1)   # 可选：将 (H,W,C) 转为 (C,H,W)
+        transform=default_transform
     )
 
-    # 配合 DataLoader 使用
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     model = ResNet18(num_classes=20)
     model.to('cuda' if has_cupy else 'cpu')
-    # optimizer = SGD(model.params())
+    
+    import numpy as np
+    dummy_input = np.random.randn(1, 3, 120, 160).astype(np.float32)
+    model(as_Tensor(dummy_input))
+    
     optimizer = Adam(model.params(), lr=1e-4)
     
     loss_fn = crossEntropyError
     if autocast:
         scaler = GradScaler()
+
+    total_params = count_params(model)
+    print(f"Model parameters: {total_params:,}")
 
     if option in ['graph', 'optim_graph']:
         for batch_idx, (images, labels) in enumerate(dataloader):
@@ -330,22 +348,22 @@ def train(num_epoch=10, option='normal', autocast=False):
 
             if autocast:
                 graph = graph_apply_cast(graph)
-                #graph.visualize()
             
             executor = graph_to_executor(graph)
             break
     elif autocast:
         print("autocast should be used with graph!")
-        return 1e-5
+        return {'duration': 1e-5, 'params': total_params, 'mem_peak': 0, 'gpu_peak': 0, 'gpu_avg': 0}
+
+    mem_peak = 0
+    gpu_mem_history = []
+    epoch_durations = []
 
     for epoch in range(num_epoch):
         tic = time.time()
-        loss_sum, acc_sum, sample_num = 0., 0, 0
+        loss_sum, acc_sum, mse_sum, sample_num = 0., 0, 0., 0
 
         for batch_idx, (images, labels) in enumerate(dataloader):
-            # images: Tensor (B, C, H, W) 或 (B, H, W, C)
-            # labels: Tensor (B,)
-
             if images.shape[0] != batch_size:
                 break
 
@@ -358,7 +376,7 @@ def train(num_epoch=10, option='normal', autocast=False):
 
             else:
                 if option == 'normal':
-                    y_pre = model(images) # (B, num_classes)
+                    y_pre = model(images)
                 elif option in ['graph', 'optim_graph']:
                     y_pre = executor.forward(images)
                 loss = loss_fn(y_pre, labels)
@@ -368,34 +386,65 @@ def train(num_epoch=10, option='normal', autocast=False):
 
             optimizer.zero_grad()
             
-            #assert isinstance(y_pre, Tensor)
             pred_classes = np.argmax(y_pre.to('cpu').data, axis=1)
             batch_acc = np.mean(pred_classes == labels.to('cpu').data)
-
+            
             loss_sum += loss.to('cpu').data * len(images)
             if not np.isnan(batch_acc):
                 acc_sum += batch_acc * len(images)
+                mse_sum += np.mean((pred_classes - labels.to('cpu').data)**2) * len(images)
             sample_num += len(images)
 
             display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
             progress_bar(batch_idx * batch_size + len(images), len(dataloader.dataset), epoch, loss.to('cpu').data, display_acc)
 
-            #break
+            current_mem = psutil.Process().memory_info().rss / 1024**2
+            mem_peak = max(mem_peak, current_mem)
+            
+            if has_cupy:
+                import cupy as cp
+                free, total = cp.cuda.Device().mem_info
+                gpu_mem_history.append((total - free) / 1024**2)
         
         toc = time.time()
         duration = toc - tic
-        print(f"\nEpoch completed in {duration:.4f}s\n")
+        epoch_durations.append(duration)
+        print(f"\nEpoch {epoch+1} completed in {duration:.4f}s\n")
 
-    #del model
-    #del optimizer
-    #import gc
-    #gc.collect()
     print_gpu_mem()
-    return duration
+    
+    gpu_peak = max(gpu_mem_history) if gpu_mem_history else 0
+    gpu_avg = np.mean(gpu_mem_history) if gpu_mem_history else 0
+    
+    avg_mse = mse_sum / sample_num if sample_num > 0 else 0.
+    
+    result = {
+        'framework': 'EnNeuro',
+        'duration': float(duration),
+        'epoch_durations': [float(d) for d in epoch_durations],
+        'params': int(total_params),
+        'mem_peak': float(mem_peak),
+        'gpu_peak': float(gpu_peak),
+        'gpu_avg': float(gpu_avg),
+        'avg_mse': float(avg_mse),
+        'num_workers': int(num_workers),
+        'batch_size': int(batch_size),
+        'num_samples': int(len(dataset))
+    }
+    
+    results_dir = current_dir / 'results'
+    results_dir.mkdir(exist_ok=True)
+    with open(results_dir / 'benchmark_enneuro.json', 'w', encoding='utf-8') as f:
+        json.dump(result, f, indent=2)
+    
+    print("\nBenchmark results:")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    
+    return result
 
 def test1():
-    normal_t = train(num_epoch=1, option='normal', autocast=False)
-    print(f"normal training complete in {normal_t:.4f}s")
+    result = train(num_epoch=1, option='normal', autocast=False, num_workers=0)
+    print(f"normal training complete in {result['duration']:.4f}s")
 
 def test2():
     normal_t = train(num_epoch=1, option='graph', autocast=False)
@@ -412,6 +461,80 @@ def test4():
 def test5():
     cast_t = train(num_epoch=1, option='optim_graph', autocast=True)
     print(f"autocast optim_graph training complete in {cast_t:.4f}s")
+
+def test_multi_epoch_comparison(num_epoch=5):
+    print(f"\n=== Multi-epoch Comparison Test ({num_epoch} epochs) ===\n")
+    
+    results = {}
+    
+    print("\n--- Testing Normal Mode ---")
+    result_normal = train(num_epoch=num_epoch, option='normal', autocast=False, num_workers=2)
+    results['normal'] = result_normal
+    
+    print("\n--- Testing Static Graph Mode ---")
+    result_graph = train(num_epoch=num_epoch, option='graph', autocast=False, num_workers=2)
+    results['graph'] = result_graph
+    
+    print("\n--- Testing Optimized Graph (Fusion) Mode ---")
+    result_optim_graph = train(num_epoch=num_epoch, option='optim_graph', autocast=False, num_workers=2)
+    results['optim_graph'] = result_optim_graph
+    
+    print("\n" + "="*70)
+    print(f"=== Multi-epoch Comparison Results ({num_epoch} epochs) ===")
+    print("="*70)
+    
+    header = f"{'Mode':<20} {'Epoch 1':>10} {'Epoch 2':>10} {'Epoch 3':>10} {'Epoch 4':>10} {'Epoch 5':>10} {'Avg':>10}"
+    print(header)
+    print("-"*70)
+    
+    for mode, result in results.items():
+        epoch_durations = result['epoch_durations']
+        avg_duration = sum(epoch_durations) / len(epoch_durations)
+        
+        line = f"{mode:<20}"
+        for i, dur in enumerate(epoch_durations):
+            line += f"{dur:>10.4f}"
+        for i in range(num_epoch - len(epoch_durations)):
+            line += f"{'N/A':>10}"
+        line += f"{avg_duration:>10.4f}"
+        print(line)
+    
+    print("\n--- Analysis ---")
+    print("Comparing Epoch 1 vs later epochs:")
+    
+    for mode, result in results.items():
+        if len(result['epoch_durations']) >= 2:
+            first_epoch = result['epoch_durations'][0]
+            later_avg = sum(result['epoch_durations'][1:]) / (len(result['epoch_durations']) - 1)
+            improvement = ((first_epoch - later_avg) / first_epoch) * 100
+            print(f"{mode}: Epoch 1 = {first_epoch:.4f}s, Later avg = {later_avg:.4f}s, Improvement = {improvement:.2f}%")
+    
+    print("\n--- Mode Comparison (Excluding Epoch 1) ---")
+    print("Comparing average time of epoch 2+ across modes:")
+    
+    later_avgs = {}
+    for mode, result in results.items():
+        if len(result['epoch_durations']) >= 2:
+            later_avg = sum(result['epoch_durations'][1:]) / (len(result['epoch_durations']) - 1)
+            later_avgs[mode] = later_avg
+    
+    if later_avgs:
+        fastest = min(later_avgs, key=later_avgs.get)
+        print(f"\nFastest mode for epoch 2+: {fastest} ({later_avgs[fastest]:.4f}s)")
+        
+        for mode, avg in later_avgs.items():
+            if mode != fastest:
+                diff = ((avg - later_avgs[fastest]) / later_avgs[fastest]) * 100
+                print(f"{mode}: {avg:.4f}s ({diff:.2f}% slower than {fastest})")
+    
+    results_dir = Path(__file__).resolve().parent / 'results'
+    results_dir.mkdir(exist_ok=True)
+    with open(results_dir / 'multi_epoch_comparison.json', 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2)
+    
+    print(f"\nResults saved to {results_dir / 'multi_epoch_comparison.json'}")
+    
+    return results
 
 if __name__ == '__main__':
     
@@ -433,3 +556,5 @@ if __name__ == '__main__':
     for i in range(10):
         test2()
     #'''
+
+    test_multi_epoch_comparison(num_epoch=5)

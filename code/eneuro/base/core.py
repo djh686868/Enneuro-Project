@@ -10,6 +10,7 @@ except ImportError:
 import weakref
 import contextlib
 from functools import total_ordering
+import os
 from eneuro.base import functions as f
 from eneuro.global_config import VISUAL_CONFIG
 import cv2
@@ -434,6 +435,16 @@ def square(x):
 class Exp(Function):
     def forward(self, x):
         xp = get_array_module(x)
+        # CuPy Tensor 在 rawmodule/auto 模式下尝试调用 CUDA C expf；失败时
+        # auto 回退到 CuPy，strict rawmodule 则把编译/发射错误交给调用者。
+        if xp is not np:
+            try:
+                from .cuda import get_backend, exp_forward
+                if get_backend() in ('rawmodule', 'auto'):
+                    return exp_forward(x)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         return xp.exp(x)
 
     def backward(self, gy):
@@ -446,6 +457,14 @@ def exp(x):
 class Add(Function):
     def forward(self, x0, x1):
         self.x0_shape, self.x1_shape = x0.shape, x1.shape
+        # 仅对无广播的同形状 float32 数组走逐元素 kernel；广播仍由 CuPy 完成。
+        if get_array_module(x0) is not np and x0.shape == x1.shape:
+            try:
+                from .cuda import add_forward
+                return add_forward(x0, x1)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         y = x0 + x1
         return y
     
@@ -467,6 +486,13 @@ def add(x0, x1):
 class Mul(Function):
     def forward(self, x0, x1):
         self.x0_shape, self.x1_shape = x0.shape, x1.shape
+        if get_array_module(x0) is not np and x0.shape == x1.shape:
+            try:
+                from .cuda import mul_forward
+                return mul_forward(x0, x1)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         y = x0 * x1
         return y
     
@@ -489,7 +515,13 @@ def mul(x0, x1):
 
 class Neg(Function):
     def forward(self, x):
-
+        if get_array_module(x) is not np:
+            try:
+                from .cuda import neg_forward
+                return neg_forward(x)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         return -x
     
     def backward(self, gy):
@@ -501,6 +533,13 @@ def neg(x):
 class Sub(Function):
     def forward(self, x0, x1):
         self.x0_shape, self.x1_shape = x0.shape, x1.shape
+        if get_array_module(x0) is not np and x0.shape == x1.shape:
+            try:
+                from .cuda import sub_forward
+                return sub_forward(x0, x1)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         y = x0 - x1
         return y
     
@@ -530,6 +569,13 @@ def rsub(x0, x1):
 class Div(Function):
     def forward(self, x0, x1):
         self.x0_shape, self.x1_shape = x0.shape, x1.shape
+        if get_array_module(x0) is not np and x0.shape == x1.shape:
+            try:
+                from .cuda import div_forward
+                return div_forward(x0, x1)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         y = x0 / x1
         return y
     
@@ -563,6 +609,13 @@ class Pow(Function):
         self.c = c
     
     def forward(self, x):
+        if get_array_module(x) is not np:
+            try:
+                from .cuda import pow_forward
+                return pow_forward(x, self.c)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         y = x ** self.c
         return y
     

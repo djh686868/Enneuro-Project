@@ -1,0 +1,6 @@
+# Optional dependencies for the CUDA C fast-validation route.
+# Install inside the EnNeuro conda environment; versions are intentionally
+# left to the existing CUDA 12.x installation.
+cupy-cuda12x>=13.0
+pytest>=8.0
+pygments>=2.15

@@ -1,0 +1,161 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 14
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+actor "User（用户）" as User
+
+rectangle "右上区域 - 基础用例" {
+    usecase "数据管理" as UC1
+    usecase "模型构建" as UC2
+    usecase "训练管理" as UC3
+}
+
+rectangle "右下区域 - 新增用例" {
+    usecase "算子编译优化" as UC4
+    usecase "可解释AI分析" as UC8
+}
+
+rectangle "左侧区域 - 辅助用例" {
+    usecase "模型持久化" as UC5
+    usecase "评估与测试" as UC6
+    usecase "可视化" as UC7
+}
+
+rectangle "数据管理子用例" {
+    usecase "加载数据集" as UC1_1
+    usecase "数据预处理" as UC1_2
+    usecase "创建数据加载器" as UC1_3
+    usecase "多进程异步数据加载" as UC1_4
+    usecase "链式图像数据增强处理" as UC1_5
+    usecase "数据集分片与进程资源回收" as UC1_6
+}
+
+rectangle "模型构建子用例" {
+    usecase "创建神经网络模型" as UC2_1
+    usecase "配置模型参数" as UC2_2
+    usecase "初始化模型权重" as UC2_3
+    usecase "构建残差网络ResNet18" as UC2_4
+    usecase "双模式BatchNorm层配置" as UC2_5
+    usecase "深度可分离/转置卷积定义" as UC2_6
+    usecase "CPU/GPU张量设备自动迁移" as UC2_7
+}
+
+rectangle "训练管理子用例" {
+    usecase "配置训练参数" as UC3_1
+    usecase "选择优化器" as UC3_2
+    usecase "选择损失函数" as UC3_3
+    usecase "执行训练" as UC3_4
+    usecase "监控训练过程" as UC3_5
+    usecase "配置L1/L2权重正则化" as UC3_6
+    usecase "配置早停训练策略" as UC3_7
+    usecase "启用自动混合精度FP16训练" as UC3_8
+    usecase "卷积多路径加速开关控制" as UC3_9
+}
+
+rectangle "算子编译优化子用例" {
+    usecase "捕获静态计算图" as UC4_1
+    usecase "算子自动融合优化" as UC4_2
+    usecase "Winograd/FFT卷积算法调度" as UC4_3
+    usecase "静态图离线推理执行" as UC4_4
+}
+
+rectangle "模型持久化子用例" {
+    usecase "保存模型与检查点" as UC5_1
+    usecase "加载模型与检查点" as UC5_2
+    usecase "优化器状态同步序列化保存" as UC5_3
+}
+
+rectangle "评估与测试子用例" {
+    usecase "模型评估" as UC6_1
+    usecase "计算指标" as UC6_2
+    usecase "可视化结果" as UC6_3
+}
+
+rectangle "可视化子用例" {
+    usecase "训练曲线可视化" as UC7_1
+    usecase "特征图可视化" as UC7_2
+    usecase "混淆矩阵可视化" as UC7_3
+    usecase "训练延迟/吞吐指标可视化" as UC7_4
+}
+
+rectangle "可解释AI分析子用例" {
+    usecase "Grad-CAM热力图生成" as UC8_1
+    usecase "导向反向传播特征可视化" as UC8_2
+    usecase "自动驾驶模型决策区域分析" as UC8_3
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+User --> UC7
+User --> UC8
+
+UC1 ..> UC1_1 : includes
+UC1 ..> UC1_2 : includes
+UC1 ..> UC1_3 : includes
+UC1 ..> UC1_4 : includes
+UC1 ..> UC1_5 : includes
+UC1 ..> UC1_6 : includes
+
+UC2 ..> UC2_1 : includes
+UC2 ..> UC2_2 : includes
+UC2 ..> UC2_3 : includes
+UC2_4 --|> UC2_1 : is a
+UC2 ..> UC2_5 : includes
+UC2 ..> UC2_6 : includes
+UC2 ..> UC2_7 : includes
+
+UC3 ..> UC3_1 : includes
+UC3 ..> UC3_2 : includes
+UC3 ..> UC3_3 : includes
+UC3 ..> UC3_4 : includes
+UC3 ..> UC3_5 : includes
+UC3 ..> UC3_6 : includes
+UC3_7 ..> UC3_4 : extends
+UC3_8 ..> UC3_4 : extends
+UC3_9 ..> UC3_4 : extends
+
+UC4 ..> UC4_1 : includes
+UC4 ..> UC4_2 : includes
+UC4 ..> UC4_3 : includes
+UC4 ..> UC4_4 : includes
+
+UC5 ..> UC5_1 : includes
+UC5 ..> UC5_2 : includes
+UC5 ..> UC5_3 : includes
+
+UC6 ..> UC6_1 : includes
+UC6 ..> UC6_2 : includes
+UC6 ..> UC6_3 : includes
+
+UC7 ..> UC7_1 : includes
+UC7 ..> UC7_2 : includes
+UC7 ..> UC7_3 : includes
+UC7 ..> UC7_4 : includes
+
+UC8 ..> UC8_1 : includes
+UC8 ..> UC8_2 : includes
+UC8 ..> UC8_3 : includes
+
+UC3 ..> UC5 : depends on
+UC3 ..> UC7 : depends on
+UC6 ..> UC7 : depends on
+UC8 ..> UC6 : extends
+UC4 ..> UC2 : depends on
+
+@enduml

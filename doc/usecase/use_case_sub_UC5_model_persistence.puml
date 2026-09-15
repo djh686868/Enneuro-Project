@@ -1,0 +1,42 @@
+@startuml
+' ============================================================
+' 子用例图：模型持久化 (UC5)
+' 所属模块：辅助功能模块
+' 修改：User仅连接顶层业务入口，与其余图纸规范保持统一
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "模型持久化" {
+    usecase "保存模型与检查点" as UC5_1
+    usecase "加载模型与检查点" as UC5_2
+    usecase "优化器状态同步序列化保存" as UC5_3
+}
+
+' =========核心修改：用户仅对接顶层入口=========
+User --> UC5_1
+User --> UC5_2
+
+' 加载模型前必须先保存
+UC5_2 ..> UC5_1 : depends on
+
+' 优化器状态序列化在保存时同步执行
+UC5_1 ..> UC5_3 : <<extend>>
+
+@enduml

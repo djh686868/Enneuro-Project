@@ -126,6 +126,13 @@ class Exp(Function):
     def forward(self,*xs):
         xs = xs[0]
         xp = get_array_module(xs)
+        if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+            try:
+                from .cuda import exp_forward
+                return exp_forward(xs)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         return xp.exp(xs)
     def backward(self, gys):
         x = self.inputs[0].data
@@ -147,6 +154,13 @@ class Log(Function):
     def forward(self,*xs):
         xs=xs[0]
         xp = get_array_module(xs)
+        if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+            try:
+                from .cuda import log_forward
+                return log_forward(xs)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
         return xp.log(xs)
     def backward(self, gys):
         x = self.inputs[0].data
@@ -448,6 +462,15 @@ class Linear(Function):
             return y
         else:
             b_data = to_xp(b, xp)
+            # 矩阵乘法继续交给 CuPy/cuBLAS；这里只替换 bias 加法，保持
+            # Linear 的权重布局、梯度公式和公共接口不变。
+            if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+                try:
+                    from .cuda import bias_add_forward
+                    return bias_add_forward(y, b_data)
+                except Exception:
+                    if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                        raise
             return y + b_data 
     def backward (self,gys):
         x,w,b = self.inputs
@@ -483,11 +506,29 @@ class ReLU(Function):
     def forward(self, *xs):
         x = xs[0]
         xp = get_array_module(x)
+        # rawmodule/auto 模式使用自研 ReLU kernel；x<=0 的输出为 0，反向
+        # 同样按 x>0 传递梯度，确保与原 NumPy/CuPy 定义一致。
+        if xp is not np:
+            try:
+                from .cuda import get_backend, relu_forward
+                if get_backend() in ('rawmodule', 'auto'):
+                    return relu_forward(x)
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy') == 'rawmodule':
+                    raise
         y = xp.maximum(x, 0.0)
         return y
 
     def backward(self, gys):
         x, = self.inputs
+        if get_array_module(x.data) is not np:
+            try:
+                from .cuda import get_backend, relu_backward
+                if get_backend() in ('rawmodule', 'auto'):
+                    return as_Tensor(relu_backward(x.data, gys.data))
+            except Exception:
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy') == 'rawmodule':
+                    raise
         mask = x.data > 0
         gx = gys * mask
         return gx
@@ -983,6 +1024,20 @@ class Conv2d(Function):
         #print(f"x.dtype = {x.dtype}")
         W = xs[1]
         b = xs[2]
+        if (has_cupy and isinstance(x, cp.ndarray) and isinstance(W.data if isinstance(W, Tensor) else W, cp.ndarray)
+                and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto')
+                and getattr(self, 'dilation', (1, 1)) == (1, 1)):
+            try:
+                from .cuda import conv2d_forward
+                self._cuda_fast_path = True
+                return conv2d_forward(x, W.data if isinstance(W, Tensor) else W,
+                                       b.data if isinstance(b, Tensor) else b,
+                                       self.stride, self.pad, self.dilation)
+            except Exception:
+                self._cuda_fast_path = False
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
+        self._cuda_fast_path = False
         self._fw_workspace = None
         self._fw_workspace_version = None
         self._used_fft = False
@@ -1008,6 +1063,12 @@ class Conv2d(Function):
 
     def backward(self, gys):
         x, W, b = self.inputs
+        if getattr(self, '_cuda_fast_path', False):
+            from .cuda import conv2d_backward
+            gx, gW, gb = conv2d_backward(gys.data, x.data, W.data,
+                                         b.data if isinstance(b, Tensor) else b,
+                                         self.stride, self.pad, self.dilation)
+            return as_Tensor(gx), as_Tensor(gW), as_Tensor(gb) if gb is not None else None
         if getattr(self, '_used_winograd', False):
             self._used_winograd_backward = True
             return self.winograd_conv2d_backward(gys, x, W, b)
@@ -1845,6 +1906,19 @@ class Pooling(Function):
 
     def forward(self, *xs):
         x = xs[0]
+        if (has_cupy and isinstance(x, cp.ndarray)
+                and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto')):
+            try:
+                from .cuda import maxpool_forward
+                y, indexes = maxpool_forward(x, self.kernel_size, self.stride, self.pad)
+                self.indexes = indexes
+                self._cuda_fast_path = True
+                return y
+            except Exception:
+                self._cuda_fast_path = False
+                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    raise
+        self._cuda_fast_path = False
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
 
@@ -1872,6 +1946,10 @@ class Pooling2DGrad(Function):
 
     def forward(self, *xs):
         gy = xs[0]
+        if getattr(self.mpool2d, '_cuda_fast_path', False):
+            from .cuda import maxpool_backward
+            return maxpool_backward(gy, self.indexes, self.input_shape,
+                                    self.kernel_size, self.stride, self.pad)
         
 
         N, C, OH, OW = gy.shape
