@@ -33,6 +33,9 @@ class Optimizer(StateDict):
 
     def __init__(self, params: list[Parameter], lr: float = 0.01,
                  l2_lambda: float = 0.0, l1_lambda: float = 0.0):
+        # 每个 Optimizer 实例独立维护 Adam 动量/步数；类级 _state 会让顺序
+        # benchmark 的三方意外共享历史状态，破坏相同初始条件。
+        self._state = {}
         # 排除不可训练参数
         params = [param for param in params if param.requires_grad == True]
         

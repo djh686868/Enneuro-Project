@@ -138,7 +138,10 @@ class Linear(Layer):
 
     def _init_W(self, xp):
         I, O = self.in_size, self.out_size
-        W_data = xp.random.randn(I, O).astype(self.dtype) * xp.sqrt(1 / I)
+        # Keep the scale in the requested dtype. A float64 scale promotes
+        # float32 weights to float64 and bypasses the CUDA C fast-route kernels.
+        scale = xp.sqrt(xp.asarray(1 / I, dtype=self.dtype))
+        W_data = xp.random.randn(I, O).astype(self.dtype) * scale
         self.W.data = W_data
 
     def forward(self, inputs):
@@ -197,11 +200,11 @@ class Conv2d(Layer):
         
         if self.depthwise:
             # 深度可分离卷积的权重形状: (OC, 1, KH, KW)
-            scale = xp.sqrt(1 / (C * KH * KW))
+            scale = xp.sqrt(xp.asarray(1 / (C * KH * KW), dtype=self.dtype))
             W_data = xp.random.randn(OC, 1, KH, KW).astype(self.dtype) * scale
         else:
             # 普通卷积或分组卷积的权重形状: (OC, C//groups, KH, KW)
-            scale = xp.sqrt(1 / ((C // self.groups) * KH * KW))
+            scale = xp.sqrt(xp.asarray(1 / ((C // self.groups) * KH * KW), dtype=self.dtype))
             W_data = xp.random.randn(OC, C // self.groups, KH, KW).astype(self.dtype) * scale
         
         self.W.data = W_data

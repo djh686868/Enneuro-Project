@@ -432,6 +432,16 @@ class Square(Function):
 def square(x):
     return Square()(x) # you can use square(x) to call the forward method of the Square class
     
+def _cuda_raw_strict():
+    """Read the selected CUDA backend from dispatch rather than the startup environment.
+
+    Benchmarks switch backends in one Python process.  If a RawModule launch
+    fails, this keeps the strict backend from silently falling back to CuPy.
+    """
+    from .cuda import get_backend
+    return get_backend() == 'rawmodule'
+
+
 class Exp(Function):
     def forward(self, x):
         xp = get_array_module(x)
@@ -443,7 +453,7 @@ class Exp(Function):
                 if get_backend() in ('rawmodule', 'auto'):
                     return exp_forward(x)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         return xp.exp(x)
 
@@ -463,7 +473,7 @@ class Add(Function):
                 from .cuda import add_forward
                 return add_forward(x0, x1)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         y = x0 + x1
         return y
@@ -491,7 +501,7 @@ class Mul(Function):
                 from .cuda import mul_forward
                 return mul_forward(x0, x1)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         y = x0 * x1
         return y
@@ -520,7 +530,7 @@ class Neg(Function):
                 from .cuda import neg_forward
                 return neg_forward(x)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         return -x
     
@@ -538,7 +548,7 @@ class Sub(Function):
                 from .cuda import sub_forward
                 return sub_forward(x0, x1)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         y = x0 - x1
         return y
@@ -574,7 +584,7 @@ class Div(Function):
                 from .cuda import div_forward
                 return div_forward(x0, x1)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         y = x0 / x1
         return y
@@ -614,7 +624,7 @@ class Pow(Function):
                 from .cuda import pow_forward
                 return pow_forward(x, self.c)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                if _cuda_raw_strict():
                     raise
         y = x ** self.c
         return y

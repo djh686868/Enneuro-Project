@@ -58,6 +58,9 @@ def main():
     ap.add_argument("--warmup", type=int, default=1)
     ap.add_argument("--out", default="artifacts/cuda_stage1_probe/mnist_three_way.json")
     ap.add_argument("--plot", default=None)
+    ap.add_argument("--backends", nargs="+", choices=("numpy", "cupy", "rawmodule"),
+                    default=("numpy", "cupy", "rawmodule"),
+                    help="Backends to measure; use cupy rawmodule to avoid repeating CPU work")
     args = ap.parse_args()
 
     import cupy as cp
@@ -75,8 +78,9 @@ def main():
     steps = min(args.steps, len(x_train) // args.batch_size)
     results = {}
     reference_loss = None
+    reference_backend = args.backends[0]
 
-    for backend in ("numpy", "cupy", "rawmodule"):
+    for backend in args.backends:
         # 在 CPU 上以固定 NumPy 随机状态初始化，再复制到 GPU，保证模型参数一致。
         np.random.seed(20260914)
         model = LeNet(in_channels=1, num_classes=10)
@@ -89,6 +93,8 @@ def main():
             dispatch.set_backend(backend)
             model.to("cuda")
             x_all, y_all = cp.asarray(x_train), cp.asarray(y_train)
+            if backend == "rawmodule":
+                dispatch.launch_counts(reset=True)
         else:
             x_all, y_all = x_train, y_train
 
@@ -124,10 +130,12 @@ def main():
             results[backend] = {"status": "ok", "mean_batch_ms": elapsed,
                                 "mean_loss": float(np.mean(losses)),
                                 "accuracy": correct / count}
+            if backend == "rawmodule":
+                results[backend]["cuda_kernel_launches"] = dispatch.launch_counts()
             if reference_loss is None:
                 reference_loss = np.asarray(losses, dtype=np.float64)
             else:
-                results[backend]["max_loss_error_vs_numpy"] = float(np.max(np.abs(np.asarray(losses) - reference_loss)))
+                results[backend]["max_loss_error_vs_reference"] = float(np.max(np.abs(np.asarray(losses) - reference_loss)))
         except Exception as exc:
             results[backend] = {"status": "unavailable", "error": repr(exc)}
 
@@ -140,10 +148,11 @@ def main():
 
     report = {"schema_version": 1, "dataset": str(args.data), "samples": len(x_train),
               "steps": steps, "batch_size": args.batch_size,
+              "backends": list(args.backends), "reference_backend": reference_backend,
               "device": cp.cuda.Device().compute_capability, "results": results,
               "acceptance": {"numerical_match": all(
-                  r.get("status") != "ok" or r.get("max_loss_error_vs_numpy", 0) < 1e-3
-                  for r in results.values()),
+                  r.get("status") != "ok" or r.get("max_loss_error_vs_reference", 0) < 1e-3
+                  for key, r in results.items() if key != args.backends[0]),
                   "rawmodule_faster_than_cupy": bool(raw_ms and cupy_ms and raw_ms < cupy_ms)}}
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     plot = Path(args.plot) if args.plot else out.with_suffix(".png")

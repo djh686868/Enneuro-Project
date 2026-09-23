@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--lr", type=float, default=0.001)
     ap.add_argument("--out", default="artifacts/cuda_stage1_probe/mnist_training_three_way.json")
     ap.add_argument("--plot", default=None)
+    ap.add_argument("--backends", nargs="+", choices=("numpy", "cupy", "rawmodule"), default=("numpy", "cupy", "rawmodule"))
     args = ap.parse_args()
     import cupy as cp
     if int(cp.cuda.runtime.getDeviceCount()) < 1: raise RuntimeError("CUDA device unavailable")
@@ -46,7 +47,7 @@ def main():
     rng = np.random.default_rng(20260914)
     batches = len(xtr) // args.batch_size
     results = {}
-    for backend in ("numpy", "cupy", "rawmodule"):
+    for backend in args.backends:
         np.random.seed(20260914)
         model = LeNet(1, 10)
         # 先在 CPU 初始化所有延迟层，确保三方参数完全相同。
@@ -54,6 +55,7 @@ def main():
         use_gpu = backend != "numpy"
         if use_gpu:
             dispatch.set_backend(backend); model.to("cuda"); xa, ya = cp.asarray(xtr), cp.asarray(ytr); xt, yt = cp.asarray(xte), cp.asarray(yte)
+            if backend == "rawmodule": dispatch.launch_counts(reset=True)
         else: xa, ya, xt, yt = xtr, ytr, xte, yte
         opt = Adam(list(model.params()), lr=args.lr)
         order = np.arange(len(xtr))
@@ -78,6 +80,10 @@ def main():
                     correct += int(np.sum(pred == yte[j:j + args.batch_size]))
                 train_loss.append(float(np.mean(losses))); test_acc.append(correct / len(xte))
             results[backend] = {"status": "ok", "train_loss": train_loss, "test_accuracy": test_acc, "epoch_ms": epoch_ms, "total_ms": float(np.sum(epoch_ms))}
+            if backend == "rawmodule":
+                results[backend]["cuda_kernel_launches"] = dispatch.launch_counts()
+                if not results[backend]["cuda_kernel_launches"].get("conv_bwd_x_f32") or not results[backend]["cuda_kernel_launches"].get("pool_bwd_f32"):
+                    results[backend]["status"] = "missing_cuda_kernels"
         except Exception as exc:
             results[backend] = {"status": "unavailable", "error": repr(exc)}
     # 浮点归约和并行执行顺序不同会使长训练轨迹逐步分叉；报告 loss 最大偏差，
@@ -96,7 +102,7 @@ def main():
         results["rawmodule"]["speedup_vs_cupy"] = results["cupy"]["total_ms"] / results["rawmodule"]["total_ms"]
     report = {"schema_version": 1, "dataset": str(args.data), "train_samples": len(xtr), "test_samples": len(xte), "epochs": args.epochs, "batch_size": args.batch_size, "results": results, "trajectory_delta": {"max_loss_vs_numpy": loss_deltas, "max_accuracy_vs_numpy": acc_deltas}}
     ok = [r for r in results.values() if r.get("status") == "ok"]
-    report["acceptance"] = {"all_completed": len(ok) == 3, "functional_equivalence": all(v <= 0.01 for v in acc_deltas.values()), "rawmodule_faster_than_cupy": results.get("rawmodule", {}).get("total_ms", 1e99) < results.get("cupy", {}).get("total_ms", -1)}
+    report["acceptance"] = {"all_completed": len(ok) == len(args.backends), "functional_equivalence": all(v <= 0.01 for v in acc_deltas.values()) if "numpy" in results and len(ok) > 1 else None, "rawmodule_faster_than_cupy": results.get("rawmodule", {}).get("total_ms", 1e99) < results.get("cupy", {}).get("total_ms", -1) if "cupy" in results and "rawmodule" in results else None}
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True); plot = Path(args.plot) if args.plot else out.with_suffix(".png")
     try:
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
@@ -121,6 +127,6 @@ def main():
     print(json.dumps(report, indent=2))
     # 退出码只反映功能验收；性能是否超过 CuPy 由独立字段报告，不把“尚需优化”
     # 误写成训练失败。
-    return 0 if report["acceptance"]["all_completed"] and report["acceptance"]["functional_equivalence"] else 1
+    return 0 if report["acceptance"]["all_completed"] and report["acceptance"]["functional_equivalence"] is not False else 1
 
 if __name__ == "__main__": raise SystemExit(main())

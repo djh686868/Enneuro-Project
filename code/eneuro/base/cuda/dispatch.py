@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import numpy as np
 
 try:
@@ -12,25 +13,13 @@ from .compiler import available, module
 # 回退到 CuPy，便于在 NVRTC 尚未配置好时仍能验证模型数值。
 _BACKEND = os.environ.get("ENNEURO_CUDA_BACKEND", "cupy").lower()
 _LAST = {"actual_backend": None, "fallback_reason": None, "last_error": None}
+_LAUNCH_COUNTS = {}
+_FUNCTIONS = {}
 
-_SRC = r'''
-// 所有 kernel 均采用“一线程处理一个输出元素”的简单映射。
-// 这样可以先验证索引、边界和梯度语义，再在最终 DLL 路线中优化线程块、共享内存。
-extern "C" __global__ void add_f32(const float*a,const float*b,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=a[i]+b[i];}
-extern "C" __global__ void sub_f32(const float*a,const float*b,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=a[i]-b[i];}
-extern "C" __global__ void mul_f32(const float*a,const float*b,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=a[i]*b[i];}
-extern "C" __global__ void div_f32(const float*a,const float*b,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=a[i]/b[i];}
-extern "C" __global__ void neg_f32(const float*x,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=-x[i];}
-extern "C" __global__ void exp_f32(const float*x,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=expf(x[i]);}
-extern "C" __global__ void log_f32(const float*x,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=logf(x[i]);}
-extern "C" __global__ void pow_f32(const float*x,float*y,float c,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=powf(x[i],c);}
-extern "C" __global__ void relu_f32(const float*x,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=x[i]>0.0f?x[i]:0.0f;}
-extern "C" __global__ void relu_bwd_f32(const float*x,const float*gy,float*gx,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)gx[i]=x[i]>0.0f?gy[i]:0.0f;}
-extern "C" __global__ void sigmoid_f32(const float*x,float*y,long n){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;if(i<n)y[i]=0.5f*tanhf(0.5f*x[i])+0.5f;}
-extern "C" __global__ void bias_f32(const float*x,const float*b,float*y,long n,long c,long s){long i=(long)blockIdx.x*blockDim.x+threadIdx.x;long total=n*c*s;if(i<total){long ch=(i/s)%c;y[i]=x[i]+b[ch];}}
-extern "C" __global__ void im2col_f32(const float*x,float*col,int N,int C,int H,int W,int KH,int KW,int OH,int OW,int SH,int SW,int PH,int PW,int DH,int DW){long t=(long)blockIdx.x*blockDim.x+threadIdx.x;long total=(long)N*OH*OW*C*KH*KW;if(t>=total)return;int kw=t%KW;t/=KW;int kh=t%KH;t/=KH;int c=t%C;t/=C;int ow=t%OW;t/=OW;int oh=t%OH;t/=OH;int n=t;int ih=oh*SH+kh*DH-PH,iw=ow*SW+kw*DW-PW;long o=((((long)n*OH+oh)*OW+ow)*C*KH*KW)+(c*KH*KW+kh*KW+kw);col[o]=(ih>=0&&ih<H&&iw>=0&&iw<W)?x[(((long)n*C+c)*H+ih)*W+iw]:0.0f;}
-extern "C" __global__ void pool_f32(const float*x,float*y,long long*idx,int N,int C,int H,int W,int KH,int KW,int OH,int OW,int SH,int SW,int PH,int PW){long t=(long)blockIdx.x*blockDim.x+threadIdx.x;long total=(long)N*C*OH*OW;if(t>=total)return;int ow=t%OW;t/=OW;int oh=t%OH;t/=OH;int c=t%C;int n=t/C;float best=0.0f;long long bi=0;bool found=false;for(int kh=0;kh<KH;++kh)for(int kw=0;kw<KW;++kw){int ih=oh*SH+kh-PH,iw=ow*SW+kw-PW;float v=(ih>=0&&ih<H&&iw>=0&&iw<W)?x[(((long)n*C+c)*H+ih)*W+iw]:0.0f;long long k=(long long)kh*KW+kw;if(!found||v>best){best=v;bi=k;found=true;}}long o=((long)n*C+c)*OH*OW+(long)oh*OW+ow;y[o]=best;idx[o]=bi;}
-'''
+_KERNEL_SOURCE_PATH = Path(__file__).with_name("sources") / "kernels.cu"
+# RawModule 与 DLL 从同一份 kernels.cu 读取设备代码，避免两条路线的
+# 数学公式、索引布局或边界行为随着维护逐渐分叉。
+_SRC = _KERNEL_SOURCE_PATH.read_text(encoding="utf-8")
 
 
 def set_backend(mode):
@@ -53,12 +42,20 @@ def diagnostics(reset=False):
     return out
 
 
+def launch_counts(reset=False):
+    """返回各自研 CUDA kernel 的发射次数，用于确认训练实际走了 RawModule。"""
+    out = dict(_LAUNCH_COUNTS)
+    if reset:
+        _LAUNCH_COUNTS.clear()
+    return out
+
+
 def is_available(backend="rawmodule"):
     if cp is None or not available():
         return False
     if backend in ("rawmodule", "auto"):
         try:
-            module(_SRC, ("relu_f32",)).get_function("relu_f32")
+            module(_SRC).get_function("relu_f32")
         except Exception:
             return False
     return True
@@ -71,8 +68,14 @@ def _raw_enabled():
 def _call(name, args, n):
     # 统一使用 256 threads/block；grid 采用 ceil(n/256)，最后一个 block
     # 通过 kernel 内的 i<n 判断处理尾部元素，避免越界写入。
-    mod = module(_SRC, (name,))
-    mod.get_function(name)(((int(n)+255)//256,), (256,), args)
+    # 源码中均为 extern "C" 名称；整个 RawModule 仅编译一次，函数句柄也
+    # 缓存在进程内，避免每种算子重复编译相同源码。
+    kernel = _FUNCTIONS.get(name)
+    if kernel is None:
+        kernel = module(_SRC).get_function(name)
+        _FUNCTIONS[name] = kernel
+    kernel(((int(n)+255)//256,), (256,), args)
+    _LAUNCH_COUNTS[name] = _LAUNCH_COUNTS.get(name, 0) + 1
 
 
 def _unary(x, name, fallback):
@@ -173,13 +176,17 @@ def im2col_forward(x,kernel,stride=1,pad=0,dilation=1,to_matrix=True):
     return col if to_matrix else col.reshape(n,oh,ow,c,kh,kw).transpose(0,3,4,5,1,2)
 
 def conv2d_forward(x,w,b=None,stride=1,pad=0,dilation=1):
-    col=im2col_forward(x,w.shape[2:],stride,pad,dilation,True); y=col.dot(cp.ascontiguousarray(w).reshape(w.shape[0],-1).T); n,_,h,wi=x.shape; kh,kw=w.shape[2:]; sh,sw=(int(stride),)*2 if np.isscalar(stride) else stride; ph,pw=(int(pad),)*2 if np.isscalar(pad) else pad; dh,dw=(int(dilation),)*2 if np.isscalar(dilation) else dilation; oh=(h+2*ph-dh*(kh-1)-1)//sh+1; ow=(wi+2*pw-dw*(kw-1)-1)//sw+1; y=y.reshape(n,oh,ow,w.shape[0]).transpose(0,3,1,2); return y+cp.asarray(b).reshape(1,-1,1,1) if b is not None else y
+    col=im2col_forward(x,w.shape[2:],stride,pad,dilation,True); y=col.dot(cp.ascontiguousarray(w).reshape(w.shape[0],-1).T); n,_,h,wi=x.shape; kh,kw=w.shape[2:]; sh,sw=(int(stride),)*2 if np.isscalar(stride) else stride; ph,pw=(int(pad),)*2 if np.isscalar(pad) else pad; dh,dw=(int(dilation),)*2 if np.isscalar(dilation) else dilation; oh=(h+2*ph-dh*(kh-1)-1)//sh+1; ow=(wi+2*pw-dw*(kw-1)-1)//sw+1; y=y.reshape(n,oh,ow,w.shape[0]).transpose(0,3,1,2); return bias_add_forward(y, b) if b is not None else y
 
 def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
     """反向阶段复用 GPU im2col 和 CuPy/cuBLAS GEMM 计算 gW、gb。"""
-    from ..functions import conv2d_backward_input_array
-    gx = conv2d_backward_input_array(gy, w, stride=stride, pad=pad,
-                                     dilation=dilation, out_h=x.shape[2], out_w=x.shape[3])
+    n,c,h,wi=map(int,x.shape); oc,_,kh,kw=map(int,w.shape); sh,sw=(int(stride),)*2 if np.isscalar(stride) else tuple(map(int,stride)); ph,pw=(int(pad),)*2 if np.isscalar(pad) else tuple(map(int,pad)); oh,ow=map(int,gy.shape[2:])
+    dh,dw=(int(dilation),)*2 if np.isscalar(dilation) else tuple(map(int,dilation))
+    if _raw_enabled() and x.dtype == cp.float32 and w.dtype == cp.float32 and gy.dtype == cp.float32 and (dh,dw) == (1,1):
+        gx = cp.zeros_like(x); _call("conv_bwd_x_f32", (cp.ascontiguousarray(gy), cp.ascontiguousarray(w), gx, n,c,h,wi,oc,kh,kw,oh,ow,sh,sw,ph,pw), x.size)
+    else:
+        from ..functions import conv2d_backward_input_array
+        gx = conv2d_backward_input_array(gy, w, stride=stride, pad=pad, dilation=dilation, out_h=x.shape[2], out_w=x.shape[3])
     col = im2col_forward(x, w.shape[2:], stride, pad, dilation, True)
     gmat = gy.transpose(0, 2, 3, 1).reshape(-1, w.shape[0])
     gw = gmat.T.dot(col).reshape(w.shape)
@@ -196,9 +203,11 @@ def maxpool_forward(x,kernel,stride=1,pad=0):
     y=cp.empty((n,c,oh,ow),dtype=x.dtype); idx=cp.empty((n,c,oh,ow),dtype=cp.int64); _call("pool_f32",(cp.ascontiguousarray(x),y,idx,n,c,h,w,kh,kw,oh,ow,sh,sw,ph,pw),y.size); return y,idx
 
 def maxpool_backward(gy,indexes,input_shape,kernel,stride=1,pad=0):
-    # 当前阶段采用确定性的 CuPy 索引累加实现反向；它与 forward 保存的
-    # kh*KW+kw 索引严格配套，后续 DLL 路线再替换为专用 gather kernel。
+    # float32/int64 路径由 pool_bwd_f32 按 forward 保存的 kh*KW+kw 索引
+    # scatter-add；重叠窗口用 atomicAdd 累加。其他 dtype 保留 CuPy 回退。
     n,c,h,w=map(int,input_shape); kh,kw=(int(kernel),)*2 if np.isscalar(kernel) else tuple(map(int,kernel)); sh,sw=(int(stride),)*2 if np.isscalar(stride) else tuple(map(int,stride)); ph,pw=(int(pad),)*2 if np.isscalar(pad) else tuple(map(int,pad)); oh,ow=gy.shape[2:]; gx=cp.zeros(input_shape,dtype=gy.dtype)
+    if _raw_enabled() and gy.dtype == cp.float32 and indexes.dtype == cp.int64:
+        _call("pool_bwd_f32", (cp.ascontiguousarray(gy), cp.ascontiguousarray(indexes), gx, n,c,h,w,int(oh),int(ow),kh,kw,sh,sw,ph,pw), int(n*c*oh*ow)); return gx
     for a in range(kh):
         for b in range(kw):
             mask=(indexes==a*kw+b); hs=cp.arange(oh)[:,None]*sh+a-ph; ws=cp.arange(ow)[None,:]*sw+b-pw; valid=(hs>=0)&(hs<h)&(ws>=0)&(ws<w); hh=cp.broadcast_to(hs,(oh,ow))[valid]; ww=cp.broadcast_to(ws,(oh,ow))[valid]

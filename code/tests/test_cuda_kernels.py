@@ -23,6 +23,7 @@ pytestmark = pytest.mark.cuda
 def _raw_backend():
     cuda.set_backend("rawmodule")
     cuda.diagnostics(reset=True)
+    cuda.launch_counts(reset=True)
     yield
     cuda.set_backend("cupy")
 
@@ -70,6 +71,42 @@ def test_pool_forward_tie_rule():
     y, idx = cuda.maxpool_forward(x, 2, 2)
     assert int(cp.asnumpy(idx)[0, 0, 0, 0]) == 1
     assert float(cp.asnumpy(y)[0, 0, 0, 0]) == 2.0
+
+
+@pytest.mark.skipif(not _gpu_available(), reason="CUDA/NVRTC unavailable")
+def test_conv_backward_input_and_weights_match_cupy_reference():
+    rng = np.random.default_rng(20260915)
+    x = cp.asarray(rng.normal(size=(2, 2, 7, 5)).astype(np.float32))
+    w = cp.asarray(rng.normal(size=(3, 2, 3, 2)).astype(np.float32))
+    gy = cp.asarray(rng.normal(size=(2, 3, 4, 6)).astype(np.float32))
+    gx, gw, gb = cuda.conv2d_backward(gy, x, w, cp.zeros(3, dtype=cp.float32),
+                                      stride=(2, 1), pad=(1, 1))
+    from eneuro.base.functions import conv2d_backward_input_array, im2col_array
+    ref_gx = conv2d_backward_input_array(gy, w, stride=(2, 1), pad=(1, 1),
+                                         out_h=x.shape[2], out_w=x.shape[3])
+    col = im2col_array(x, (3, 2), (2, 1), (1, 1), True, xp=cp)
+    ref_gw = gy.transpose(0, 2, 3, 1).reshape(-1, 3).T.dot(col).reshape(w.shape)
+    np.testing.assert_allclose(cp.asnumpy(gx), cp.asnumpy(ref_gx), atol=1e-4, rtol=2e-4)
+    np.testing.assert_allclose(cp.asnumpy(gw), cp.asnumpy(ref_gw), atol=1e-4, rtol=2e-4)
+    np.testing.assert_allclose(cp.asnumpy(gb), cp.asnumpy(gy.sum(axis=(0, 2, 3))), atol=1e-5)
+    assert cuda.launch_counts().get("conv_bwd_x_f32", 0) > 0
+
+
+@pytest.mark.skipif(not _gpu_available(), reason="CUDA/NVRTC unavailable")
+def test_pool_backward_overlap_matches_cupy_reference():
+    x = cp.asarray([[[[1, 3, 3], [2, 5, 4], [2, 5, 1]]]], dtype=cp.float32)
+    gy = cp.asarray([[[[1, 2], [3, 4]]]], dtype=cp.float32)
+    _, idx = cuda.maxpool_forward(x, 2, stride=1)
+    gx = cuda.maxpool_backward(gy, idx, x.shape, 2, stride=1)
+    # CPU oracle 遍历输出窗口，并按首次最大值索引把上游梯度散射回输入。
+    ref = np.zeros(x.shape, dtype=np.float32)
+    indices = cp.asnumpy(idx)
+    for oh in range(2):
+        for ow in range(2):
+            kh, kw = divmod(int(indices[0, 0, oh, ow]), 2)
+            ref[0, 0, oh + kh, ow + kw] += float(gy[0, 0, oh, ow].get())
+    np.testing.assert_allclose(cp.asnumpy(gx), ref, atol=1e-5)
+    assert cuda.launch_counts().get("pool_bwd_f32", 0) > 0
 
 
 def test_backend_switch_without_gpu_requirement():

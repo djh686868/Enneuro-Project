@@ -16,6 +16,12 @@ from .core import Config
 import builtins
 
 
+def _cuda_backend_enabled():
+    # 与 dispatch.set_backend 保持同一状态来源；不能只读取进程启动时的环境变量。
+    from .cuda import get_backend
+    return get_backend() in ('rawmodule', 'auto')
+
+
 _CPU_TILED_ENABLED = os.environ.get("ENE_CONV_CPU_TILED", "1") != "0"
 _CPU_TILED_MIN_OH_OW = int(os.environ.get("ENE_CONV_CPU_TILED_MIN_OH_OW", "4096"))
 _CPU_TILE_TARGET_BYTES = int(os.environ.get("ENE_CONV_CPU_TILE_TARGET_BYTES", "262144"))
@@ -126,12 +132,13 @@ class Exp(Function):
     def forward(self,*xs):
         xs = xs[0]
         xp = get_array_module(xs)
-        if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+        if xp is not np and _cuda_backend_enabled():
             try:
                 from .cuda import exp_forward
                 return exp_forward(xs)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         return xp.exp(xs)
     def backward(self, gys):
@@ -154,12 +161,13 @@ class Log(Function):
     def forward(self,*xs):
         xs=xs[0]
         xp = get_array_module(xs)
-        if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+        if xp is not np and _cuda_backend_enabled():
             try:
                 from .cuda import log_forward
                 return log_forward(xs)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         return xp.log(xs)
     def backward(self, gys):
@@ -464,12 +472,13 @@ class Linear(Function):
             b_data = to_xp(b, xp)
             # 矩阵乘法继续交给 CuPy/cuBLAS；这里只替换 bias 加法，保持
             # Linear 的权重布局、梯度公式和公共接口不变。
-            if xp is not np and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto'):
+            if xp is not np and _cuda_backend_enabled():
                 try:
                     from .cuda import bias_add_forward
                     return bias_add_forward(y, b_data)
                 except Exception:
-                    if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                    from .cuda import get_backend
+                    if get_backend() == 'rawmodule':
                         raise
             return y + b_data 
     def backward (self,gys):
@@ -514,7 +523,8 @@ class ReLU(Function):
                 if get_backend() in ('rawmodule', 'auto'):
                     return relu_forward(x)
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy') == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         y = xp.maximum(x, 0.0)
         return y
@@ -527,7 +537,8 @@ class ReLU(Function):
                 if get_backend() in ('rawmodule', 'auto'):
                     return as_Tensor(relu_backward(x.data, gys.data))
             except Exception:
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy') == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         mask = x.data > 0
         gx = gys * mask
@@ -1025,7 +1036,7 @@ class Conv2d(Function):
         W = xs[1]
         b = xs[2]
         if (has_cupy and isinstance(x, cp.ndarray) and isinstance(W.data if isinstance(W, Tensor) else W, cp.ndarray)
-                and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto')
+                and _cuda_backend_enabled()
                 and getattr(self, 'dilation', (1, 1)) == (1, 1)):
             try:
                 from .cuda import conv2d_forward
@@ -1035,7 +1046,8 @@ class Conv2d(Function):
                                        self.stride, self.pad, self.dilation)
             except Exception:
                 self._cuda_fast_path = False
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         self._cuda_fast_path = False
         self._fw_workspace = None
@@ -1907,7 +1919,7 @@ class Pooling(Function):
     def forward(self, *xs):
         x = xs[0]
         if (has_cupy and isinstance(x, cp.ndarray)
-                and os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() in ('rawmodule', 'auto')):
+                and _cuda_backend_enabled()):
             try:
                 from .cuda import maxpool_forward
                 y, indexes = maxpool_forward(x, self.kernel_size, self.stride, self.pad)
@@ -1916,7 +1928,8 @@ class Pooling(Function):
                 return y
             except Exception:
                 self._cuda_fast_path = False
-                if os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy').lower() == 'rawmodule':
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
                     raise
         self._cuda_fast_path = False
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,

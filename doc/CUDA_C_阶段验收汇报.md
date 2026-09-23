@@ -1,38 +1,22 @@
 # EnNeuro CUDA C 算子改写阶段验收汇报
 
-> 汇报时长：约 5 分钟  
-> 验收阶段：Python 内嵌 CUDA C / CuPy RawModule 快速验证路线  
-> GPU：计算能力 `sm_89`；CuPy `13.3.0`
+> 汇报时长：约 5 分钟
+> 当前路线：Python 内嵌 CUDA C / CuPy RawModule 快速验证
+> 测试设备：Compute Capability 8.9（sm_89），CuPy 13.3.0，CUDA 12.6
 
-## 1. 工作目标与结论
+## 1. 工作目标与当前结论
 
-本阶段的目标是把框架底层高频算子和简单神经网络算子改写为 CUDA C kernel，先通过 CuPy `RawModule` 在 Python 中运行，验证以下三点：
+本阶段把框架中已完成的底层逐元素、卷积和池化算子接入 CUDA C kernel，并在 MNIST LeNet 训练流程中验证前向、反向和参数更新。
 
-1. CUDA C kernel 与原 CuPy/NumPy 实现的数值结果一致；
-2. CUDA C kernel 可以接入 EnNeuro 自动求导和 LeNet-5 训练流程；
-3. 在相同输入、相同参数和相同训练配置下，评估 CUDA C 相对 CPU NumPy 与 CuPy 的性能。
+本轮优化完成了卷积输入梯度 CUDA kernel、池化反向 CUDA kernel、RawModule 函数句柄缓存、运行时后端状态统一、LeNet 权重 dtype 修正，以及 Adam 实例状态隔离。CUDA kernel 回归测试为 12 项通过。固定输入算子微基准中 RawModule 比 CuPy 快约 4.99 倍；512 张 MNIST、8 个 batch 的前向/反向测试中快约 19.69 倍；512 张 MNIST、1 epoch 的 Adam 训练冒烟测试中快约 9.38 倍。所有数字都是当前小规模测试的实测值，不代表完整 MNIST 训练的最终加速比。
 
-本阶段已经完成：基础算子测试、CUDA C RawModule 测试、MNIST LeNet 全量训练和三方 benchmark。最终 30 epoch 训练中，CUDA C RawModule 达到约 `1.99x` CPU NumPy、约 `1.009x` CuPy 的总训练加速，测试准确率为 `98.98%`，功能验收通过。
+需要特别说明：此前记录的 60,000 张训练集、30 epoch 三方结果属于优化前版本，不能作为本轮性能结论。检查发现 LeNet 初始化时，float32 随机权重乘以 float64 缩放系数后变成了 float64，导致只支持 float32 的 RawModule 路径大部分时间回退到 CuPy。本轮已修复 dtype，但尚未重跑完整三方训练。
 
-这里的结果属于快速验证路线结果，下一阶段仍需把 kernel 从 Python 字符串迁移到独立 `.cu` 文件，再编译为 DLL。
+## 2. 技术原理简述
 
-## 2. 技术原理
+快速验证路线不先构建 DLL，而是把 CUDA C 源码作为字符串交给 CuPy RawModule。CuPy 在运行时通过 NVRTC 编译并加载 kernel，Python 侧负责准备 CuPy 数组和发射配置，逐元素计算则由 GPU 执行。
 
-快速验证路线不先构建 DLL，而是把 CUDA C 源码放入 Python 原始字符串：
-
-```python
-module = cp.RawModule(
-    code=_SRC,
-    options=("--std=c++14",),
-    name_expressions=["relu_f32"],
-)
-kernel = module.get_function("relu_f32")
-kernel(((n + 255) // 256,), (256,), (x, y, n))
-```
-
-CuPy 使用 NVRTC 在运行时编译 kernel。输入和输出保持为 CuPy GPU 数组，Python 只负责准备参数和发射 kernel，实际逐元素计算在 GPU 上完成。
-
-以 ReLU 为例，每个线程负责一个元素：
+以 ReLU 为例，每个 CUDA 线程负责一个线性元素；线程索引由 block 编号、block 内线程编号和 block 大小组成，边界条件 i < n 保护最后一个不完整线程块：
 
 ```cpp
 extern "C" __global__ void relu_f32(
@@ -42,161 +26,136 @@ extern "C" __global__ void relu_f32(
 }
 ```
 
-线程索引由 block 索引、block 内线程索引和 block 大小共同确定。`i < n` 负责保护最后一个不完整线程块，避免越界访问。
+本轮补充的反向 kernel 处理两个原先较慢的算子：
 
-后端分为三种主要模式：
+- 卷积输入梯度：一个线程负责一个输入梯度元素，反向枚举与该输入位置相关的输出通道和卷积窗口，并累加上游梯度乘卷积权重。
+- 最大池化输入梯度：每个输出梯度线程根据前向保存的最大值索引找到输入位置，再用 atomicAdd 累加。重叠窗口可能写到同一输入元素，因此需要原子加法避免并发写冲突。
 
-| 后端 | 作用 |
-|---|---|
-| `cupy` | 使用原有 CuPy 实现 |
-| `rawmodule` | 强制使用自研 CUDA C kernel，错误直接暴露 |
-| `auto` | 优先使用 CUDA C，失败时回退到 CuPy |
+池化反向的核心写入如下。为突出计算逻辑，片段省略了从线性线程索引恢复 batch、channel 和空间坐标的代码：
 
-卷积采用分阶段实现：
-
-```text
-NCHW 输入
-  ↓
-CUDA C im2col
-  ↓
-CuPy/cuBLAS GEMM
-  ↓
-bias_add CUDA C kernel
-  ↓
-NCHW 输出
+```cpp
+long long k = indexes[out_index];
+int ih = oh * stride_h + (int)(k / kernel_w) - pad_h;
+int iw = ow * stride_w + (int)(k % kernel_w) - pad_w;
+if (ih >= 0 && ih < H && iw >= 0 && iw < W)
+    atomicAdd(&gx[input_index], gy[out_index]);
 ```
 
-这种设计把最需要验证的窗口索引、padding 和布局交给自研 kernel，同时继续使用 CuPy/cuBLAS 完成矩阵乘法。
+卷积输入梯度 kernel 则为每个输入位置收集所有能影响该位置的输出梯度。以下片段同样省略坐标解码：
+
+```cpp
+float acc = 0.0f;
+for (int oc = 0; oc < out_channels; ++oc)
+  for (int kh = 0; kh < kernel_h; ++kh)
+    for (int kw = 0; kw < kernel_w; ++kw) {
+      int oh_num = ih + pad_h - kh;
+      int ow_num = iw + pad_w - kw;
+      if (oh_num >= 0 && ow_num >= 0 &&
+          oh_num % stride_h == 0 && ow_num % stride_w == 0) {
+        int oh = oh_num / stride_h, ow = ow_num / stride_w;
+        if (oh < out_h && ow < out_w) {
+          long go = (((long)n * out_channels + oc) * out_h + oh) * out_w + ow;
+          long wi = (((long)oc * channels + c) * kernel_h + kh) * kernel_w + kw;
+          acc += gy[go] * w[wi];
+        }
+      }
+    }
+long gi = (((long)n * channels + c) * in_h + ih) * in_w + iw;
+gx[gi] = acc;
+```
+
+卷积前向仍采用分阶段路径：CUDA C im2col 展开输入窗口，CuPy/cuBLAS GEMM 计算矩阵乘法，CUDA C bias kernel 添加偏置。RawModule 函数句柄也会缓存，避免每次调用都重新查找 kernel。
+
+当前有 cupy、rawmodule、auto 三种运行模式。rawmodule 用于严格验收；若 kernel 出错会抛出异常。auto 可在 kernel 不可用时回退到 CuPy。只有 float32 连续数组等受支持输入会走自研 kernel，其他 dtype 或广播场景仍由 CuPy 处理。
 
 ## 3. 主要代码位置
 
 | 文件 | 作用 |
 |---|---|
-| `code/eneuro/base/cuda/compiler.py` | RawModule 编译、GPU 检测和按架构缓存 |
-| `code/eneuro/base/cuda/dispatch.py` | CUDA C kernel、后端切换和 CuPy 回退 |
-| `code/eneuro/base/cuda/__init__.py` | CUDA 后端公共入口 |
-| `code/eneuro/base/core.py` | `add`、`mul`、`exp`、`neg`、`sub`、`div`、`pow` 接入 |
-| `code/eneuro/base/functions.py` | ReLU、Linear bias、Conv2d、Pooling 接入 |
-| `code/tests/test_cuda_kernels.py` | 基础 kernel、im2col、卷积、池化测试 |
-| `code/tests/test_cuda_lenet.py` | LeNet 前向和反向冒烟测试 |
-| `code/bench_cuda_three_way.py` | CPU/CuPy/RawModule 算子 benchmark |
-| `code/train_mnist_three_way.py` | CPU/CuPy/RawModule MNIST 完整训练对比 |
+| code/eneuro/base/cuda/dispatch.py | CUDA C kernel、RawModule 函数缓存、后端分派、kernel 发射计数 |
+| code/eneuro/base/cuda/compiler.py | RawModule 编译、设备与 NVRTC 可用性检测 |
+| code/eneuro/base/core.py | add、sub、mul、div、neg、exp、log、pow 等基础算子接入和严格后端错误处理 |
+| code/eneuro/base/functions.py | ReLU、bias、Conv2d、MaxPool 前向与反向接入 |
+| code/eneuro/nn/module.py | Linear、Conv2d 权重初始化保持请求的 dtype，避免 float32 被缩放系数提升为 float64 |
+| code/eneuro/nn/optim.py | 每个 Optimizer 实例独立维护 Adam 等状态 |
+| code/tests/test_cuda_kernels.py | CUDA kernel 数值与梯度参考测试 |
+| code/tests/test_cuda_lenet.py | LeNet 前向、反向和 RawModule kernel 使用验证 |
+| code/bench_cuda_three_way.py | 固定输入算子 benchmark，支持选择测量后端 |
+| code/bench_mnist_three_way.py | MNIST LeNet 小批次前向/反向 benchmark，支持仅测 GPU 后端 |
+| code/train_mnist_three_way.py | MNIST LeNet 训练 benchmark，支持仅测 GPU 后端并记录 kernel 发射次数 |
 
-基础算子通过统一分派函数调用：
+## 4. 正确性验证
 
-```python
-def relu_forward(x):
-    return _unary(x, "relu_f32", lambda a: cp.maximum(a, 0))
-```
-
-对于不满足首版 kernel 条件的输入，例如非 `float32`、需要广播的二元运算或非连续数组，代码会使用 CuPy 处理；`rawmodule` 严格模式会保留错误，便于验收时发现问题。
-
-## 4. 正确性验收
-
-pytest 测试命令：
+在 EnNeuro 环境、CUDA 12.6 下运行：
 
 ```powershell
-python -m pytest code/tests/test_cuda_backend_cpu.py code/tests/test_cuda_kernels.py code/tests/test_cuda_lenet.py -q
+$env:CUDA_PATH='C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6'; $env:PATH='C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;'+$env:PATH; & 'C:\Users\Administrator\.conda\envs\EnNeuro\python.exe' -m pytest code/tests/test_cuda_backend_cpu.py code/tests/test_cuda_kernels.py code/tests/test_cuda_lenet.py -q
 ```
 
-验收结果：
+结果：
 
 ```text
-10 passed in 2.15s
+12 passed in 1.85s
 ```
 
-测试覆盖：
+测试覆盖基础算子、ReLU 前后向、bias、im2col、卷积前向和梯度、池化最大值索引与重叠窗口梯度，以及 LeNet 的端到端前向和反向。测试同时检查 conv_bwd_x_f32、pool_bwd_f32 确实被发射，避免仅因 CuPy 回退而误报通过。
 
-- `add`、`sub`、`mul`、`div`、`neg`、`exp`、`log`、`pow`；
-- ReLU 前向和反向；
-- sigmoid 和 bias add；
-- im2col 的 stride、padding、dilation 与布局；
-- Conv2d 输出与 CuPy 参考实现；
-- MaxPool 最大值索引和并列最大值规则；
-- LeNet 前向、CrossEntropyLoss 和反向传播。
+## 5. 优化后性能测试
 
-独立 RawModule 验收脚本结果：
+### 固定输入算子微基准
 
-```text
-基础逐元素算子：全部通过
-im2col：max_abs_error = 0
-Conv2d：max_abs_error = 1.43e-6
-MaxPool：全部通过
-actual_backend = rawmodule
-fallback_reason = null
-```
+配置为 warmup 5 次、测量 30 次。每轮包含 exp、ReLU、im2col、矩阵乘法和 bias：
 
-## 5. MNIST 三方训练结果
-
-实验配置：
-
-- 训练集：60000 张 MNIST 图像；
-- 测试集：10000 张 MNIST 图像；
-- 模型：EnNeuro LeNet；
-- batch size：32；
-- epoch：30；
-- 优化器：Adam，学习率 `0.001`；
-- 三方使用相同初始参数、相同 batch 顺序和相同数据。
-
-### 5.1 总耗时
-
-| 实现 | 总训练时间 | 相对 CPU NumPy |
+| 实现 | 平均耗时 | 对比 |
 |---|---:|---:|
-| CPU NumPy | 1442.23 s | 1.00x |
-| CuPy | 729.82 s | 1.98x |
-| CUDA C RawModule | 723.17 s | 1.99x |
+| CuPy | 0.91969 ms | 1.00x |
+| CUDA C RawModule | 0.18432 ms | 4.99x |
 
-CUDA C RawModule 相对 CuPy 的加速比为：
+两种 GPU 实现相对 NumPy 参考的最大绝对误差均为 1.1444e-05。RawModule 测量中，exp、ReLU、im2col 和 bias kernel 各实际发射 30 次。
 
-```text
-729.82 / 723.17 = 1.0092x
-```
+![优化后固定输入算子 CuPy 与 RawModule 耗时](../artifacts/cuda_stage1_probe/optimized_cuda_gpu_two_way.png)
 
-也就是总训练时间减少约 `0.92%`，约节省 `6.65 s`。
+### MNIST 固定子集前向与反向
 
-### 5.2 训练效果
+使用仓库内 MNIST 数据，512 张样本、batch size 64、8 个 batch，测量训练前向和反向，不包含 Adam 参数更新：
 
-| 实现 | 第 30 epoch 测试准确率 |
-|---|---:|
-| CPU NumPy | 99.07% |
-| CuPy | 99.17% |
-| CUDA C RawModule | 98.98% |
+| 实现 | 平均 batch 耗时 | 平均 loss | 准确率 |
+|---|---:|---:|---:|
+| CuPy | 76.04 ms | 2.2972087 | 6.25% |
+| CUDA C RawModule | 3.86 ms | 2.2972087 | 6.25% |
 
-三方均完成收敛，RawModule 与 NumPy 的最大测试准确率差为 `0.49` 个百分点，满足当前功能等价阈值 `1%`。
+RawModule 相对 CuPy 为 19.69x，loss 误差为 0。此时模型尚未训练，因此准确率只用于确认两条路径的输出行为，不代表模型效果。RawModule 实际发射了 im2col、bias、ReLU、pool 前后向和卷积输入梯度 kernel。
 
-### 5.3 训练曲线与耗时图
+![MNIST 固定子集前向与反向耗时](../artifacts/cuda_stage1_probe/optimized_mnist_gpu_two_way.png)
 
-![MNIST LeNet 三方训练曲线与总耗时对比](../artifacts/cuda_stage1_probe/mnist_training_full_three_way.png)
+### Adam 训练冒烟测试
 
-图中左侧为训练 loss，中央为测试准确率，右侧为三方总训练时间。RawModule 与 CuPy 的曲线接近，说明改写没有破坏训练行为；右侧耗时图显示当前 CUDA C 路线已经略快于 CuPy，但优势仍然有限。
+使用 512 张训练样本、512 张测试样本、batch size 64、1 epoch：
 
-## 6. 阶段结论与下一步
+| 实现 | 训练 epoch 耗时 | 训练 loss | 测试准确率 |
+|---|---:|---:|---:|
+| CuPy | 716.89 ms | 2.1758721 | 56.64% |
+| CUDA C RawModule | 76.46 ms | 2.1758721 | 56.84% |
 
-本阶段完成了从底层逐元素算子到 LeNet 训练的闭环验证：CUDA C kernel 可以被编译、发射并接入现有自动求导框架，真实 MNIST 训练的准确率与 CuPy 基线一致，并取得轻微端到端速度优势。
+该小规模测试 RawModule 相对 CuPy 为 9.38x。两者 loss 相同，测试准确率相差约 0.20 个百分点。RawModule 确实发射了卷积和池化反向 kernel。样本和 epoch 数较少，结果仅证明训练闭环可运行，不用于推断完整 MNIST 的最终吞吐或泛化能力。
 
-当前性能提升有限的主要原因是：卷积矩阵乘法仍使用 CuPy/cuBLAS，池化反向仍使用 CuPy 索引累加，Python 层仍存在多次 kernel 发射和算子调度。下一阶段进入最终交付路线后，重点工作是：
+![MNIST Adam 训练冒烟测试](../artifacts/cuda_stage1_probe/optimized_mnist_training_gpu_two_way.png)
 
-1. 将 kernel 从 `dispatch.py` 字符串迁移到独立 `.cu` 文件；
-2. 使用 `nvcc` 编译 Windows x64 DLL；
-3. 实现专用 Conv2d 输入梯度和 MaxPool backward gather kernel；
-4. 减少 Python 调度和中间张量分配；
-5. 重新进行同样的 MNIST 30 epoch 三方验收。
+## 6. 结果边界与后续工作
 
-## 7. 可复现实验命令
+本轮已证明已完成的 CUDA C 算子在当前测试输入上数值正确，并且在小规模 GPU benchmark 中比 CuPy 路径快。完整 60,000/10,000 MNIST 三方训练尚未基于修正后的 dtype 和优化器状态重跑，因此当前不能报告新的全量训练时长或正式的完整训练加速比。此前 30 epoch 结果应视作旧实现历史记录，不用于支持当前 RawModule 加速结论。
+
+下一步如果需要完成最终性能验收，应在相同初始化权重、数据顺序、batch size 和环境下重新比较 CuPy 与 RawModule；CPU NumPy 全量训练成本较高，可将其留作参考基线或只跑较小子集。完整训练命令如下：
 
 ```powershell
-python -m pytest code/tests/test_cuda_backend_cpu.py code/tests/test_cuda_kernels.py code/tests/test_cuda_lenet.py -q
+$env:CUDA_PATH='C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6'; $env:PATH='C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;'+$env:PATH; & 'C:\Users\Administrator\.conda\envs\EnNeuro\python.exe' code/train_mnist_three_way.py --train-samples 60000 --test-samples 10000 --epochs 30 --batch-size 32 --lr 0.001 --out artifacts/cuda_stage1_probe/mnist_training_optimized_three_way.json --plot artifacts/cuda_stage1_probe/mnist_training_optimized_three_way.png
 ```
 
-```powershell
-python code/test_cuda_fast_route.py --backend rawmodule --out artifacts/cuda_stage1_probe/fast_route_test.json
-```
+## 7. 本轮结果文件
 
-```powershell
-python code/train_mnist_three_way.py --train-samples 60000 --test-samples 10000 --epochs 30 --batch-size 32 --lr 0.001 --out artifacts/cuda_stage1_probe/mnist_training_full_three_way.json --plot artifacts/cuda_stage1_probe/mnist_training_full_three_way.png
-```
+- 固定输入算子对比：[optimized_cuda_gpu_two_way.json](../artifacts/cuda_stage1_probe/optimized_cuda_gpu_two_way.json)
+- MNIST 前向/反向对比：[optimized_mnist_gpu_two_way.json](../artifacts/cuda_stage1_probe/optimized_mnist_gpu_two_way.json)
+- Adam 训练冒烟测试：[optimized_mnist_training_gpu_two_way.json](../artifacts/cuda_stage1_probe/optimized_mnist_training_gpu_two_way.json)
+- RawModule-only 微基准：[optimized_rawmodule_benchmark.json](../artifacts/cuda_stage1_probe/optimized_rawmodule_benchmark.json)
 
-报告数据来源：
-
-[mnist_training_full_three_way.json](../artifacts/cuda_stage1_probe/mnist_training_full_three_way.json)
-
+已完成 DLL 路线的源码迁移与 nvcc 构建：设备代码位于 `code/eneuro/base/cuda/sources/kernels.cu`，C ABI launcher 位于 `sources/library.cu`，生成的本地二进制为 `bin/enneuro_cuda_sm89.dll`。下一步将为 `extension` 后端接入 ctypes loader，并以同一套数值与性能脚本完成 DLL 三方复验。

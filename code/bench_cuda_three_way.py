@@ -23,6 +23,9 @@ def main():
     ap.add_argument("--iters", type=int, default=30)
     ap.add_argument("--out", default="artifacts/cuda_stage1_probe/three_way_benchmark.json")
     ap.add_argument("--plot", default=None, help="柱状图输出路径，默认与 JSON 同目录")
+    ap.add_argument("--backends", nargs="+", choices=("numpy", "cupy", "rawmodule"),
+                    default=("numpy", "cupy", "rawmodule"),
+                    help="Select measured backends; rawmodule alone reuses the fixed NumPy oracle")
     args = ap.parse_args()
 
     import cupy as cp
@@ -38,6 +41,9 @@ def main():
     b_np = rng.normal(size=(6,)).astype(np.float32)
     v_np = rng.normal(size=(1 << 20)).astype(np.float32)
     results = {}
+    # The numerical oracle is computed once outside the timed loop. This
+    # allows a RawModule-only rerun without timing the unchanged CPU path.
+    ref_z, ref_y = None, None
 
     def sync(kind):
         if kind != "numpy":
@@ -61,7 +67,8 @@ def main():
         return z, y
 
     # 先预热，RawModule 编译和 CuPy kernel cache 不进入稳定计时。
-    for kind in ("numpy", "cupy", "rawmodule"):
+    ref_z, ref_y = workload("numpy")
+    for kind in args.backends:
         try:
             for _ in range(args.warmup):
                 workload(kind)
@@ -71,14 +78,16 @@ def main():
             continue
 
         start = time.perf_counter()
+        if kind == "rawmodule":
+            dispatch.launch_counts(reset=True)
         for _ in range(args.iters):
             out = workload(kind)
         sync(kind)
         elapsed = (time.perf_counter() - start) / args.iters * 1000.0
         results[kind] = {"status": "ok", "mean_ms": elapsed}
-        if kind == "numpy":
-            ref_z, ref_y = out
-        else:
+        if kind == "rawmodule":
+            results[kind]["cuda_kernel_launches"] = dispatch.launch_counts()
+        if kind != "numpy":
             z, y = out
             results[kind]["max_abs_error"] = max(
                 float(np.max(np.abs(cp.asnumpy(z) - ref_z))),
@@ -107,7 +116,8 @@ def main():
                 r.get("status") != "ok" or r.get("max_abs_error", 0.0) <= 2e-4
                 for k, r in results.items() if k in ("cupy", "rawmodule")
             ),
-            "rawmodule_faster_than_cupy": bool(raw_ms and cupy_ms and raw_ms < cupy_ms),
+            "rawmodule_faster_than_cupy": bool(raw_ms and cupy_ms and raw_ms < cupy_ms)
+                if "cupy" in results and "rawmodule" in results else None,
         },
     }
     path = Path(args.out)
