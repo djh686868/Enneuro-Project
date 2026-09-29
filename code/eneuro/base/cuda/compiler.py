@@ -10,16 +10,25 @@ except Exception:  # pragma: no cover
 # 每次前向传播都触发 NVRTC 编译。计算能力进入 key 是因为同一 CUDA 源码
 # 可能需要针对不同 SM 架构重新生成代码。
 _CACHE = {}
+_AVAILABLE = None
 
 
 def available():
     """返回当前进程是否能看到至少一个 CUDA 设备。"""
+    global _AVAILABLE
+    # ``dispatch._raw_enabled`` is called for every tensor operation.  Querying
+    # the CUDA runtime on every call adds avoidable host overhead during a
+    # multi-thousand-batch run, so cache the process-level result.
+    if _AVAILABLE is not None:
+        return _AVAILABLE
     if cp is None:
-        return False
+        _AVAILABLE = False
+        return _AVAILABLE
     try:
-        return int(cp.cuda.runtime.getDeviceCount()) > 0
+        _AVAILABLE = int(cp.cuda.runtime.getDeviceCount()) > 0
     except Exception:
-        return False
+        _AVAILABLE = False
+    return _AVAILABLE
 
 
 def module(source, names=(), options=()):

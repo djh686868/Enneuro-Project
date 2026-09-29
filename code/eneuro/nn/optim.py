@@ -176,20 +176,26 @@ class MomentumSGD(Optimizer):
 
             # 将grad和标量转换为与xp匹配的类型
             if xp is not np:
-                grad = xp.asarray(grad)
-                _lr = xp.asarray(_lr)
-                _m = xp.asarray(_m)
+                dtype = param.data.dtype
+                grad = xp.asarray(grad, dtype=dtype)
+                lr_value = xp.asarray(_lr, dtype=dtype)
+                momentum_value = xp.asarray(_m, dtype=dtype)
             else:
-                grad = np.asarray(grad)
+                dtype = param.data.dtype
+                grad = np.asarray(grad, dtype=dtype)
+                lr_value = np.asarray(_lr, dtype=dtype)
+                momentum_value = np.asarray(_m, dtype=dtype)
 
             _v = _vdict.get(str(idx), xp.zeros_like(param.data))
 
             # 确保_v是正确类型的数组（与xp匹配）
-            if xp is not np and isinstance(_v, np.ndarray):
-                _v = xp.asarray(_v)
+            if xp is not np:
+                _v = xp.asarray(_v, dtype=dtype)
+            else:
+                _v = np.asarray(_v, dtype=dtype)
 
             # v = v*m - lr*grad
-            _v = _v * _m - _lr * grad
+            _v = _v * momentum_value - lr_value * grad
             # w = w + v
             param.data += _v
 
@@ -229,37 +235,45 @@ class Adam(Optimizer):
 
             # 将grad和标量转换为与xp匹配的类型
             if xp is not np:
-                grad = xp.asarray(grad)
-                _lr = xp.asarray(_lr)
-                _b1 = xp.asarray(_b1)
-                _b2 = xp.asarray(_b2)
-                _eps = xp.asarray(_eps)
-                one_minus_b1 = xp.asarray(1) - _b1
-                one_minus_b2 = xp.asarray(1) - _b2
+                dtype = param.data.dtype
+                grad = xp.asarray(grad, dtype=dtype)
+                lr_value = xp.asarray(_lr, dtype=dtype)
+                beta1_value = xp.asarray(_b1, dtype=dtype)
+                beta2_value = xp.asarray(_b2, dtype=dtype)
+                eps_value = xp.asarray(_eps, dtype=dtype)
+                one_minus_b1 = xp.asarray(1, dtype=dtype) - beta1_value
+                one_minus_b2 = xp.asarray(1, dtype=dtype) - beta2_value
             else:
-                one_minus_b1 = 1 - _b1
-                one_minus_b2 = 1 - _b2
+                dtype = param.data.dtype
+                grad = np.asarray(grad, dtype=dtype)
+                lr_value = np.asarray(_lr, dtype=dtype)
+                beta1_value = np.asarray(_b1, dtype=dtype)
+                beta2_value = np.asarray(_b2, dtype=dtype)
+                eps_value = np.asarray(_eps, dtype=dtype)
+                one_minus_b1 = 1 - beta1_value
+                one_minus_b2 = 1 - beta2_value
 
             _v = _vdict.get(str(idx), xp.zeros_like(param.data))
             _s = _sdict.get(str(idx), xp.zeros_like(param.data))
 
             # 确保_v和_s是正确类型的数组（与xp匹配）
             if xp is not np:
-                if isinstance(_v, np.ndarray):
-                    _v = xp.asarray(_v)
-                if isinstance(_s, np.ndarray):
-                    _s = xp.asarray(_s)
+                _v = xp.asarray(_v, dtype=dtype)
+                _s = xp.asarray(_s, dtype=dtype)
+            else:
+                _v = np.asarray(_v, dtype=dtype)
+                _s = np.asarray(_s, dtype=dtype)
 
             # v = v*beta1 + (1-beta1)*grad
-            _v = _v * _b1 + one_minus_b1 * grad
+            _v = _v * beta1_value + one_minus_b1 * grad
             # s = s*beta2 + (1-beta2)*grad*grad
-            _s = _s * _b2 + one_minus_b2 * xp.power(grad, 2)
+            _s = _s * beta2_value + one_minus_b2 * xp.power(grad, 2)
 
             # 计算修正
-            v_hat = _v / (1 - _b1 ** _t)
-            s_hat = _s / (1 - _b2 ** _t)
+            v_hat = _v / (1 - beta1_value ** _t)
+            s_hat = _s / (1 - beta2_value ** _t)
 
             # w = w - lr*v / sqrt(s + eps)
-            param.data -= _lr * v_hat / xp.sqrt(s_hat + _eps)
+            param.data -= lr_value * v_hat / xp.sqrt(s_hat + eps_value)
 
             self._state[V_KEY][str(idx)], self._state[S_KEY][str(idx)] = _v, _s
