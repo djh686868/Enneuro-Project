@@ -2,6 +2,7 @@ from pathlib import Path
 from ..utils import StateDict
 from ..nn.module import Module
 from ..nn.optim import Optimizer
+from ..ao import GraphExecutor
 from ..base import Tensor
 from ..base.functions import get_array_module
 import json
@@ -40,7 +41,14 @@ def _auto_model_config(model: Module) -> dict | None:
                 params[name] = param.default
             else:
                 return None   # 有必填参数但找不到对应属性，放弃推导
-        return {"type": type(model).__name__, "params": params}
+        config = {"type": type(model).__name__, "params": params}
+        # Some constructors (for example ``Sequential(*layers)``) expose
+        # live Layer/function objects as attributes.  They are useful for
+        # model execution but cannot be represented in JSON.  Treat the
+        # automatic config as best effort and skip it when it is not JSON
+        # serializable; explicit ``model_config`` remains fully supported.
+        json.dumps(config, ensure_ascii=False)
+        return config
     except Exception:
         return None
 
@@ -63,53 +71,71 @@ class Serializer:
     """
 
     @staticmethod
-    def save(model: Module,
+    def save(state: StateDict,
              path: str | Path,
              model_config: dict = None,
              model_id: str = None) -> None:
-        """
-        保存模型权重，并将 model_config 写入同名 .config.json 文件。
+        """保存 Module、Optimizer 或 GraphExecutor 的 JSON 状态。
 
-        Parameters
-        ----------
-        model_config : {"type": "ResNet18", "params": {"in_channels": 3, "num_classes": 10}}
-                       传入后会额外生成 <stem>.config.json，Web 端可直接导入架构或加载权重。
+        Module 继续使用当前分支的 Web 兼容格式，并可额外生成独立的
+        ``*.config.json``；Optimizer 和 GraphExecutor 使用上游约定的
+        ``optim_state``/``graph_executor_state`` 包装，因而可以直接被
+        ``Serializer.load`` 恢复。
         """
         path = Path(path)
-        data = {
-            "model_type":  type(model).__name__,
-            "model_state": model.to_dict(),
-        }
-        if model_id is not None:
-            data["model_id"] = model_id
-        if model_config is not None:
-            data["model_config"] = model_config
+
+        if isinstance(state, Module):
+            data = {
+                "model_type": type(state).__name__,
+                "model_state": state.to_dict(),
+            }
+            if model_id is not None:
+                data["model_id"] = model_id
+            if model_config is not None:
+                data["model_config"] = model_config
+        elif isinstance(state, Optimizer):
+            data = {"optim_state": state.to_dict()}
+        elif isinstance(state, GraphExecutor):
+            data = {"graph_executor_state": state.to_dict()}
+        else:
+            data = state.to_dict()
+            print("Warning: Unstandard StateDict Saved!")
 
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        # 未传入 model_config 时尝试自动推导
-        if model_config is None:
-            model_config = _auto_model_config(model)
-
-        # 同时写出独立 config 文件
-        if model_config is not None:
-            cfg_data = {
-                "model_type":   type(model).__name__,
-                "model_config": model_config,
-            }
-            if model_id is not None:
-                cfg_data["model_id"] = model_id
-            cfg_path = _config_path(path)
-            with open(cfg_path, 'w', encoding='utf-8') as f:
-                json.dump(cfg_data, f, ensure_ascii=False, indent=2)
+        # 只有模型需要架构配置；其它 StateDict 不应触发模型配置推导。
+        if isinstance(state, Module):
+            if model_config is None:
+                model_config = _auto_model_config(state)
+            if model_config is not None:
+                cfg_data = {
+                    "model_type": type(state).__name__,
+                    "model_config": model_config,
+                }
+                if model_id is not None:
+                    cfg_data["model_id"] = model_id
+                with open(_config_path(path), 'w', encoding='utf-8') as f:
+                    json.dump(cfg_data, f, ensure_ascii=False, indent=2)
 
     @staticmethod
-    def load(model: Module, path: str | Path) -> None:
-        """从 JSON 文件加载权重（兼容 Web 端格式及旧格式）。"""
+    def load(state: StateDict, path: str | Path) -> None:
+        """恢复 JSON 状态，兼容模型、优化器和 GraphExecutor 文件。"""
         with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        model.from_dict(data.get('model_state', data))
+            loaded = json.load(f)
+        data = dict(loaded)
+
+        if isinstance(state, Module):
+            values = data.get('model_state', data)
+        elif isinstance(state, Optimizer):
+            values = data.get('optim_state', data.get('model_state', data))
+        elif isinstance(state, GraphExecutor):
+            values = data.get('graph_executor_state', data.get('model_state', data))
+        else:
+            values = data
+            print("Warning: Unstandard StateDict Loaded!")
+
+        state.from_dict(values)
 
     @staticmethod
     def save_checkpoint(model: Module,

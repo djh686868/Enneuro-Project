@@ -123,9 +123,8 @@ class GradScaler:
     用例：
     scaler = GradScaler()  # 损失缩放器
     for input, target in data:
-        with autocast(dtype='float16'):   # 前向：低精度
-            output = model(input)
-            loss = loss_fn(output, target)
+        output = model(input)
+        loss = loss_fn(output, target)       # 前向：低精度
 
         scaler.scale(loss).backward()         # 反向：缩放后的低精度梯度计算
         scaler.step(optimizer)               # 反缩放梯度并更新参数
