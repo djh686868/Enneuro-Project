@@ -1,0 +1,7 @@
+# Local CUDA binaries are reproducible build artifacts.
+*.dll
+*.lib
+*.exp
+*.ptx
+*.log
+build_manifest.json

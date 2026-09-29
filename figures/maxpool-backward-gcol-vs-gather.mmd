@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph before["改造前：gcol 中转"]
+        direction TB
+        beforeInput["gy 与 indexes<br/>形状均为：(N, C, OH, OW)"]:::input
+        flatGcol["创建并散写 flat gcol<br/>形状：N*C*OH*OW*KH*KW"]:::temp
+        transposedGcol["reshape：(N,C,OH,OW,KH,KW)<br/>swapaxes：(N,C,KH,KW,OH,OW)"]:::temp
+        col2im["col2im：遍历 kh、kw<br/>小块累加回图像"]:::compute
+        beforeGx["最终 gx<br/>形状：(N, C, H, W)"]:::output
+
+        beforeInput --> flatGcol --> transposedGcol --> col2im --> beforeGx
+    end
+
+    subgraph after["改造后：gather 直接写 gx"]
+        direction TB
+        afterInput["gy 与 indexes<br/>形状均为：(N, C, OH, OW)"]:::input
+        gather["启动 N*C*H*W 个 CUDA 线程<br/>每线程反查覆盖窗口与 argmax"]:::compute
+        accumulate["从 gy 读取相关梯度<br/>在寄存器累加；不创建 gcol"]:::compute
+        afterGx["直接写最终 gx<br/>形状：(N, C, H, W)"]:::output
+
+        afterInput --> gather
+        gather --> accumulate --> afterGx
+    end
+
+    beforeGx ~~~ afterInput
+
+    classDef input fill:#D1FAE5,stroke:#059669,color:#111827,stroke-width:2px;
+    classDef temp fill:#FDE68A,stroke:#B45309,color:#111827,stroke-width:2px;
+    classDef compute fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px;
+    classDef output fill:#FED7AA,stroke:#C2410C,color:#111827,stroke-width:2px;
+    style before fill:#FFFBEB,stroke:#D97706,stroke-width:2px
+    style after fill:#EFF6FF,stroke:#2563EB,stroke-width:2px

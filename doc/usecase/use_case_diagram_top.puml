@@ -1,0 +1,53 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "基础功能模块" {
+    usecase "数据管理" as UC1
+    usecase "模型构建" as UC2
+    usecase "训练管理" as UC3
+}
+
+rectangle "新增功能模块" {
+    usecase "算子编译优化" as UC4
+    usecase "可解释AI分析" as UC8
+}
+
+rectangle "辅助功能模块" {
+    usecase "模型持久化" as UC5
+    usecase "评估与测试" as UC6
+    usecase "可视化" as UC7
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+User --> UC7
+User --> UC8
+
+UC3 ..> UC5 : depends on
+UC3 ..> UC7 : depends on
+UC6 ..> UC7 : depends on
+UC8 ..> UC6 : extends
+UC4 ..> UC2 : depends on
+
+@enduml

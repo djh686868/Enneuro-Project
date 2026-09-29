@@ -16,9 +16,11 @@ from eneuro.data.dataloader import DataLoader
 from dataset import AutoDriveDataset, preprocess_image
 from model import ResNet18AutoDrive
 
+from eneuro.utils.monitor_client import MonitorClient
+
 
 batch_size = 32
-total_epochs = 60
+total_epochs = 1
 lr =1e-4
 
 model = ResNet18AutoDrive()
@@ -59,7 +61,12 @@ val_loader = DataLoader(
     drop_last=True,
 )
 
-trainer = Trainer(model, loss_fn, optimizer, visualizer)
+monitor = MonitorClient(run_name="my_exp")
+
+trainer = Trainer(model, loss_fn, optimizer, visualizer,
+                  on_epoch_end=monitor.on_epoch_end,
+                  on_batch_end=monitor.on_batch_end,
+                  on_train_end=monitor.on_train_end)
 
 trainer.fit(
     train_loader,

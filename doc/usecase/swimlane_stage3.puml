@@ -1,0 +1,45 @@
+@startuml EnNeuro_Swimlane_Stage3
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "SimSun"
+skinparam defaultFontSize 14
+skinparam activity {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+    ArrowColor #000000
+}
+skinparam arrowColor #000000
+skinparam boundary {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam partition {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+|Trainer|
+|Explain|
+|NN|
+
+start
+:加载训练完成模型;
+partition "注册梯度钩子" {
+    :capture_features;
+    :capture_gradients;
+    :HookRegistry追踪层顺序;
+}
+partition "特征与梯度捕获" {
+    :前向传播获取特征图;
+    :定位BN后继层;
+    :反向传播计算梯度;
+}
+partition "Grad-CAM计算" {
+    :计算α_k权重;
+    :ReLU加权求和;
+    :归一化热力图;
+}
+:输出Grad-CAM热力可视化图;
+stop
+
+@enduml

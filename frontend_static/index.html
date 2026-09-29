@@ -1,0 +1,1631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EnNeuro Web 可视化平台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+  nav { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px;
+        display: flex; align-items: center; gap: 24px; }
+  nav h1 { font-size: 18px; color: #58a6ff; font-weight: 700; margin-right: 16px; }
+  nav a { color: #8b949e; text-decoration: none; font-size: 14px; padding: 6px 12px;
+          border-radius: 6px; cursor: pointer; }
+  nav a.active, nav a:hover { background: #21262d; color: #e6edf3; }
+  .page { display: none; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .page.active { display: block; }
+  h2 { font-size: 20px; margin-bottom: 20px; color: #f0f6fc; }
+  h3 { font-size: 15px; margin-bottom: 12px; color: #8b949e; font-weight: 500; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .form-row label { font-size: 12px; color: #8b949e; }
+  .form-row input, .form-row select {
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 6px; padding: 8px 10px; font-size: 13px; width: 100%;
+  }
+  .form-row input:focus, .form-row select:focus { outline: none; border-color: #58a6ff; }
+  .btn { padding: 8px 18px; background: #238636; color: #fff; border: none;
+         border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn:hover { background: #2ea043; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { background: #da3633; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-blue { background: #1f6feb; }
+  .btn-blue:hover { background: #388bfd; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-running  { background: #0d4a2d; color: #3fb950; }
+  .badge-finished { background: #0d2a5c; color: #58a6ff; }
+  .badge-stopped  { background: #2d333b; color: #8b949e; }
+  .badge-error    { background: #4a0d1a; color: #f85149; }
+  .badge-idle     { background: #21262d; color: #8b949e; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .mono { font-family: monospace; background: #0d1117; padding: 2px 6px;
+          border-radius: 4px; color: #79c0ff; font-size: 12px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chip { padding: 4px 10px; border: 1px solid #30363d; border-radius: 16px;
+          font-size: 12px; cursor: pointer; color: #8b949e; }
+  .chip:hover, .chip.selected { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .preset-chip { border-color: #58a6ff; color: #58a6ff; }
+  .preset-chip:hover, .preset-chip.selected { background: #0d2a5c; }
+  .layer-list { list-style: none; }
+  .layer-list li { background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+                   padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+                   display: flex; justify-content: space-between; align-items: center; }
+  .layer-list li .ltype { color: #79c0ff; font-weight: 600; }
+  .layer-list li .lparams { color: #8b949e; font-size: 11px; font-family: monospace; }
+  .img-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .img-grid figure { margin: 0; text-align: center; }
+  .img-grid img { border-radius: 4px; display: block; }
+  .img-grid figcaption { font-size: 10px; color: #8b949e; margin-top: 2px; }
+  .result-imgs { display: flex; gap: 20px; flex-wrap: wrap; }
+  .result-imgs figure { margin: 0; text-align: center; }
+  .result-imgs img { width: 220px; height: 220px; object-fit: contain;
+                     border-radius: 8px; border: 1px solid #30363d;
+                     image-rendering: auto; }
+  .result-imgs figcaption { font-size: 12px; color: #8b949e; margin-top: 6px; }
+  #chartLoss, #chartAcc { width: 100%; height: 300px; border-radius: 8px; }
+  #chartBatch { width: 100%; height: 260px; border-radius: 8px; }
+  .ds-sample-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; }
+  .ds-sample-picker figure { margin: 0; text-align: center; cursor: pointer; border: 2px solid transparent;
+                              border-radius: 6px; padding: 2px; transition: border-color .15s; }
+  .ds-sample-picker figure:hover { border-color: #58a6ff; }
+  .ds-sample-picker figure.selected { border-color: #3fb950; }
+  .ds-sample-picker figcaption { font-size: 9px; color: #8b949e; margin-top: 2px; }
+  .info-box { background: #0d2a5c; border: 1px solid #1f6feb; border-radius: 8px;
+              padding: 12px 16px; font-size: 13px; color: #79c0ff; margin-bottom: 12px; }
+  .error-box { background: #4a0d1a; border: 1px solid #da3633; border-radius: 8px;
+               padding: 12px 16px; font-size: 13px; color: #f85149; margin-bottom: 12px; }
+  .flex-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .flex-1 { flex: 1; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>⚡ EnNeuro</h1>
+  <a class="active" onclick="showPage('designer', this)">模型设计</a>
+  <a onclick="showPage('datasets', this)">数据集</a>
+  <a onclick="showPage('training', this)">训练控制台</a>
+  <a onclick="showPage('monitor', this)">外部监控</a>
+  <a onclick="showPage('visual', this)">可视化</a>
+  <span style="margin-left:auto;font-size:12px;color:#8b949e" id="apiStatus">连接中…</span>
+</nav>
+
+<!-- ======== 模型设计 ======== -->
+<div class="page active" id="page-designer">
+  <h2>模型设计</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>预置模型</h3>
+      <div class="chip-row" id="presetChips"></div>
+      <div id="presetInfo"></div>
+      <h3 style="margin-top:16px">自定义层（点击添加）</h3>
+      <div class="chip-row">
+        <span class="chip" onclick="addLayer('Conv2d',{out_channels:32,kernel_size:3,padding:1})">Conv2d</span>
+        <span class="chip" onclick="addLayer('BatchNorm2d',{})">BatchNorm2d</span>
+        <span class="chip" onclick="addLayer('Linear',{out_size:128})">Linear</span>
+      </div>
+      <ul class="layer-list" id="layerList"></ul>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-blue" onclick="buildModel()">构建模型</button>
+        <button class="btn" style="background:#21262d" onclick="clearLayers()">清空</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>已构建模型</h3>
+      <div id="builtModelInfo" style="color:#8b949e;font-size:13px">尚未构建模型</div>
+      <div id="modelList" style="margin-top:12px"></div>
+      <hr style="border-color:#30363d;margin:14px 0" />
+      <h3>加载已保存模型</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <button class="btn btn-blue" style="font-size:12px;padding:5px 12px"
+                onclick="loadSavedList()">刷新列表</button>
+      </div>
+      <div id="savedModelList" style="color:#8b949e;font-size:13px">点击刷新加载</div>
+    </div>
+  </div>
+  <div class="card" id="archCard" style="display:none">
+    <h3 id="archTitle">模型架构</h3>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
+      点击层名可复制到「可视化」面板的目标层输入框
+    </div>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div id="archDiagram" style="flex:1;min-width:260px;overflow-x:auto"></div>
+      <div id="archLayerList" style="flex:0 0 220px;font-size:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== 数据集 ======== -->
+<div class="page" id="page-datasets">
+  <h2>数据集管理</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>注册本地数据集</h3>
+      <div class="form-row"><label>数据集名称</label><input id="dsName" placeholder="donkey_test" /></div>
+      <div class="form-row"><label>本地路径（服务器端）</label><input id="dsPath" placeholder="D:/path/to/dataset" /></div>
+      <div class="form-row"><label>描述（可选）</label><input id="dsDesc" /></div>
+      <div class="form-row">
+        <label>图像尺寸</label>
+        <select id="dsResizeMode" onchange="toggleCustomResize(this.value)" style="margin-bottom:6px">
+          <option value="original">原图尺寸（不 resize）</option>
+          <option value="160x120">160 × 120（DonkeyCar 原始）</option>
+          <option value="224x224">224 × 224（标准 ImageNet）</option>
+          <option value="32x32">32 × 32（轻量 MNIST/LeNet）</option>
+          <option value="custom">自定义…</option>
+        </select>
+        <div id="dsResizeCustom" style="display:none;display:flex;gap:8px;align-items:center">
+          <input id="dsResizeW" type="number" placeholder="宽 W" min="1" style="width:80px" />
+          <span style="color:#8b949e">×</span>
+          <input id="dsResizeH" type="number" placeholder="高 H" min="1" style="width:80px" />
+        </div>
+      </div>
+      <button class="btn" onclick="registerDataset()">注册</button>
+      <div id="dsRegResult" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>数据集列表</h3>
+      <button class="btn btn-blue" onclick="loadDatasets()" style="margin-bottom:12px">刷新</button>
+      <div id="datasetList" style="color:#8b949e;font-size:13px">点击刷新加载</div>
+    </div>
+  </div>
+  <div class="card" id="dsPreviewCard" style="display:none">
+    <h3>数据集预览 <span id="dsPreviewTitle"></span></h3>
+    <div class="img-grid" id="dsPreviewGrid"></div>
+  </div>
+</div>
+
+<!-- ======== 训练控制台 ======== -->
+<div class="page" id="page-training">
+  <h2>训练控制台</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>训练配置</h3>
+      <div class="form-row"><label>Model ID</label><input id="trModelId" placeholder="从模型设计复制" /></div>
+      <div class="form-row"><label>Dataset ID</label><input id="trDatasetId" placeholder="从数据集列表复制" /></div>
+      <div class="flex-row">
+        <div class="form-row flex-1"><label>Epochs</label><input id="trEpochs" type="number" value="5" min="1" /></div>
+        <div class="form-row flex-1"><label>Batch Size</label><input id="trBatch" type="number" value="32" /></div>
+      </div>
+      <div class="flex-row">
+        <div class="form-row flex-1"><label>Learning Rate</label><input id="trLr" type="number" value="0.001" step="0.0001" /></div>
+        <div class="form-row flex-1">
+          <label>Optimizer</label>
+          <select id="trOptim">
+            <option value="adam">Adam</option>
+            <option value="sgd">SGD</option>
+            <option value="momentum_sgd">Momentum SGD</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex-row">
+        <div class="form-row flex-1">
+          <label>Device</label>
+          <select id="trDevice"><option value="cpu">CPU</option><option value="cuda">CUDA</option></select>
+        </div>
+        <div class="form-row flex-1"><label>Val Split</label><input id="trValSplit" type="number" value="0.2" step="0.05" /></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn" id="btnStart" onclick="startTraining()">开始训练</button>
+        <button class="btn btn-danger" id="btnStop" onclick="stopTraining()" disabled>停止</button>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <span id="trStatus" class="badge badge-idle">idle</span>
+        <span id="trTaskId" style="font-size:12px;color:#8b949e"></span>
+      </div>
+      <div id="trError" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>Batch 实时曲线 <span id="batchChartLabel" style="font-size:11px;color:#8b949e"></span></h3>
+      <div id="chartBatch"></div>
+    </div>
+  </div>
+  <!-- 系统资源监控 -->
+  <div class="card" id="sysMonCard">
+    <h3>系统资源监控</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">CPU 使用率</div>
+        <div id="sysGaugeCpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysCpuPct">--</span>%
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">内存使用率</div>
+        <div id="sysGaugeMem" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysMemPct">--</span>% &nbsp;
+          <span id="sysMemGB" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+      <div id="sysGpuCol">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">GPU 使用率</div>
+        <div id="sysGaugeGpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px;">
+          <span id="sysGpuPct">--</span>% &nbsp;
+          <span id="sysGpuMem" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Epoch Loss 曲线</h3>
+    <div id="chartLoss"></div>
+  </div>
+  <div class="card">
+    <h3>Epoch Accuracy 曲线</h3>
+    <div id="chartAcc"></div>
+  </div>
+</div>
+
+<!-- ======== 外部监控 ======== -->
+<div class="page" id="page-monitor">
+  <h2>外部监控</h2>
+  <div class="grid-2">
+    <!-- 左：run 列表 -->
+    <div class="card">
+      <h3>运行列表 <button class="btn btn-blue" onclick="monRefreshRuns()" style="float:right;font-size:11px;padding:4px 10px">刷新</button></h3>
+      <div id="monRunList" style="font-size:13px;color:#8b949e;margin-top:8px">点击刷新加载</div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #30363d">
+        <div style="font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:10px">如何接入监控？</div>
+
+        <!-- 步骤 1 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">1</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在脚本顶部 import 区加入（文件第一段 import 末尾）
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">from eneuro.utils.monitor_client import MonitorClient</pre>
+          </div>
+        </div>
+
+        <!-- 步骤 2 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">2</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在 <code style="background:#21262d;padding:1px 5px;border-radius:3px">Trainer(...)</code>
+              创建语句的<strong style="color:#f0883e">上方</strong>加一行
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">monitor = MonitorClient(run_name="my_exp")</pre>
+          </div>
+        </div>
+
+        <!-- 步骤 3 -->
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+          <span style="background:#1f6feb;color:#fff;border-radius:50%;width:20px;height:20px;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px">3</span>
+          <div>
+            <div style="font-size:12px;color:#58a6ff;font-weight:600;margin-bottom:3px">
+              在 <code style="background:#21262d;padding:1px 5px;border-radius:3px">Trainer(...)</code>
+              调用中追加两个参数（<strong style="color:#f0883e">不改其余参数</strong>）
+            </div>
+            <pre style="background:#0d1117;border:1px solid #30363d;border-radius:6px;
+                        padding:8px 12px;font-size:12px;color:#79c0ff;margin:0">trainer = Trainer(model, loss_fn, optimizer, ...原有参数...,
+                  on_epoch_end=monitor.on_epoch_end,
+                  on_batch_end=monitor.on_batch_end,
+                  on_train_end=monitor.on_train_end)</pre>
+          </div>
+        </div>
+
+        <!-- 提示 -->
+        <div style="background:#0d2a0d;border:1px solid #238636;border-radius:6px;
+                    padding:8px 12px;font-size:12px;color:#3fb950;margin-top:4px">
+          脚本末尾无需任何改动。Web 服务器未启动时 MonitorClient 会静默跳过，不影响正常训练。
+        </div>
+      </div>
+    </div>
+    <!-- 右：当前 run 状态 -->
+    <div class="card">
+      <h3>当前监控</h3>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span id="monRunName" style="font-size:14px;color:#e6edf3;font-weight:600">未选择</span>
+        <span id="monRunBadge" class="badge badge-idle">idle</span>
+        <button id="monStopBtn" class="btn btn-danger" onclick="monDisconnect()"
+                style="font-size:11px;padding:4px 10px;display:none">断开</button>
+      </div>
+      <!-- epoch 进度 -->
+      <div style="display:flex;gap:16px;font-size:12px;color:#8b949e;flex-wrap:wrap">
+        <span>已运行 <strong id="monElapsed" style="color:#e6edf3;font-family:monospace">—</strong></span>
+        <span>Epoch <strong id="monEpoch" style="color:#e6edf3">—</strong></span>
+        <span>Batch <strong id="monBatch" style="color:#e6edf3">—</strong></span>
+        <span>Train Loss <strong id="monLoss" style="color:#f0883e">—</strong></span>
+        <span>Train Acc <strong id="monAcc" style="color:#3fb950">—</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch 实时曲线 -->
+  <div class="card">
+    <h3>Batch 实时曲线 <span id="monBatchLabel" style="font-size:11px;color:#8b949e"></span></h3>
+    <div id="monChartBatch" style="width:100%;height:240px;border-radius:8px"></div>
+  </div>
+
+  <!-- Epoch 曲线 -->
+  <div class="grid-2">
+    <div class="card">
+      <h3>Epoch Loss</h3>
+      <div id="monChartLoss" style="width:100%;height:260px;border-radius:8px"></div>
+    </div>
+    <div class="card">
+      <h3>Epoch Accuracy</h3>
+      <div id="monChartAcc" style="width:100%;height:260px;border-radius:8px"></div>
+    </div>
+  </div>
+
+  <!-- 系统资源（复用同一套 gauge，点进来时刷新） -->
+  <div class="card">
+    <h3>系统资源</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">CPU 使用率</div>
+        <div id="monGaugeCpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monCpuPct">--</span>%
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">内存使用率</div>
+        <div id="monGaugeMem" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monMemPct">--</span>%
+          <span id="monMemGB" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+      <div id="monGpuCol">
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px;">GPU 使用率</div>
+        <div id="monGaugeGpu" style="height:120px;"></div>
+        <div style="text-align:center;font-size:12px;color:#e6edf3;margin-top:2px">
+          <span id="monGpuPct">--</span>%
+          <span id="monGpuMem" style="color:#8b949e;font-size:11px"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== 可视化 ======== -->
+<div class="page" id="page-visual">
+  <h2>推理可视化</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>输入配置</h3>
+      <div class="form-row"><label>Model ID</label><input id="visModelId" placeholder="从模型设计复制" /></div>
+      <div class="form-row"><label>目标层名称</label><input id="visLayer" placeholder="如 layer_0 或 conv1" /></div>
+      <div class="form-row">
+        <label>上传图像文件</label>
+        <input type="file" accept="image/*" onchange="onImageFile(event)" id="visFile" />
+      </div>
+      <div style="margin:10px 0;color:#8b949e;font-size:12px;text-align:center">── 或从数据集中选取 ──</div>
+      <div class="form-row">
+        <label>选择数据集</label>
+        <select id="visDatasetSelect" onchange="loadVisDatasetSamples()">
+          <option value="">— 请选择 —</option>
+        </select>
+      </div>
+      <div id="visDatasetSamples" class="ds-sample-picker" style="margin-bottom:8px"></div>
+      <div id="visPreview" style="margin-top:4px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-blue" id="btnGradcam" onclick="doGradcam()" disabled>GradCAM</button>
+        <button class="btn" id="btnFeatMaps" onclick="doFeatureMaps()" disabled>特征图</button>
+      </div>
+      <div id="visError" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>GradCAM 结果</h3>
+      <div class="result-imgs" id="gradcamResult"><span style="color:#8b949e;font-size:13px">尚无结果</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>全通道特征图 <span id="featMapCount"></span></h3>
+    <div class="img-grid" id="featureMapsGrid"><span style="color:#8b949e;font-size:13px">尚无结果</span></div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000/api'
+
+// ===== 导航 =====
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'))
+  document.getElementById('page-' + name).classList.add('active')
+  el.classList.add('active')
+  // 切换到训练页时强制 ECharts 重新计算容器尺寸
+  if (name === 'training') {
+    requestAnimationFrame(() => {
+      if (lossChart)  lossChart.resize()
+      if (accChart)   accChart.resize()
+      if (batchChart) batchChart.resize()
+      if (_gauCpu)    _gauCpu.resize()
+      if (_gauMem)    _gauMem.resize()
+      if (_gauGpu)    _gauGpu.resize()
+    })
+  }
+  if (name === 'monitor') {
+    monRefreshRuns()
+    requestAnimationFrame(() => {
+      if (_monChartBatch) _monChartBatch.resize()
+      if (_monChartLoss)  _monChartLoss.resize()
+      if (_monChartAcc)   _monChartAcc.resize()
+      if (_monGauCpu)     _monGauCpu.resize()
+      if (_monGauMem)     _monGauMem.resize()
+      if (_monGauGpu)     _monGauGpu.resize()
+    })
+  }
+}
+
+// ===== API 状态检查 =====
+async function checkApi() {
+  try {
+    const r = await fetch('http://localhost:8000/ping')
+    const d = await r.json()
+    document.getElementById('apiStatus').textContent = '✓ API 已连接'
+    document.getElementById('apiStatus').style.color = '#3fb950'
+  } catch {
+    document.getElementById('apiStatus').textContent = '✗ API 未响应'
+    document.getElementById('apiStatus').style.color = '#f85149'
+  }
+}
+
+// ===== 模型设计 =====
+let layers = []
+let selectedPreset = null
+
+const PRESET_GROUPS = {
+  '基础': ['MLP_3Layer', 'SimpleCNN'],
+  'LeNet': ['LeNet', 'LeNet_RGB'],
+  'AlexNet': ['AlexNet', 'AlexNet_Gray'],
+  'VGG': ['VGG11', 'VGG13', 'VGG16'],
+  'ResNet': ['ResNet18', 'ResNet18_Gray'],
+}
+
+let _allPresets = {}
+
+async function loadPresets() {
+  const presets = await fetch(`${API}/models/presets`).then(r => r.json())
+  presets.forEach(p => { _allPresets[p.name] = p })
+
+  const container = document.getElementById('presetChips')
+  container.innerHTML = ''
+
+  for (const [group, names] of Object.entries(PRESET_GROUPS)) {
+    const groupEl = document.createElement('div')
+    groupEl.style.cssText = 'width:100%;margin-top:10px;'
+    groupEl.innerHTML = `<div style="font-size:11px;color:#6e7681;text-transform:uppercase;
+                                     letter-spacing:.08em;margin-bottom:4px">${group}</div>`
+    container.appendChild(groupEl)
+
+    names.forEach(name => {
+      const p = _allPresets[name]
+      if (!p) return
+      const chip = document.createElement('span')
+      chip.className = 'chip preset-chip'
+      chip.textContent = name
+      chip.title = p.description || ''
+      chip.dataset.recommendedInput = p.recommended_input || ''
+      chip.onclick = () => selectPreset(name, chip)
+      container.appendChild(chip)
+    })
+  }
+}
+
+function selectPreset(name, el) {
+  selectedPreset = name
+  layers = []
+  renderLayerList()
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  el.classList.add('selected')
+
+  const p = _allPresets[name] || {}
+  const infoEl = document.getElementById('presetInfo')
+  if (infoEl) {
+    infoEl.innerHTML = p.description
+      ? `<div class="info-box" style="margin-top:8px">
+           <strong>${name}</strong><br>
+           ${p.description}<br>
+           <span style="color:#8b949e">推荐输入：${p.recommended_input || '—'}</span>
+         </div>`
+      : ''
+  }
+}
+
+function addLayer(type, params) {
+  selectedPreset = null
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  layers.push({ type, params: { ...params } })
+  renderLayerList()
+}
+
+function clearLayers() {
+  layers = []
+  selectedPreset = null
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('selected'))
+  renderLayerList()
+}
+
+function renderLayerList() {
+  const ul = document.getElementById('layerList')
+  ul.innerHTML = ''
+  if (selectedPreset) {
+    ul.innerHTML = `<li><span class="ltype">[Preset]</span> <span class="lparams">${selectedPreset}</span></li>`
+    return
+  }
+  layers.forEach((l, i) => {
+    const li = document.createElement('li')
+    li.innerHTML = `<span><span class="ltype">${l.type}</span> <span class="lparams">${JSON.stringify(l.params)}</span></span>
+                    <span style="cursor:pointer;color:#f85149" onclick="removeLayer(${i})">✕</span>`
+    ul.appendChild(li)
+  })
+}
+
+function removeLayer(i) {
+  layers.splice(i, 1)
+  renderLayerList()
+}
+
+async function buildModel() {
+  let body
+  if (selectedPreset) {
+    body = { preset: selectedPreset }
+  } else if (layers.length > 0) {
+    body = { layers }
+  } else {
+    alert('请先选择预置模型或添加层')
+    return
+  }
+
+  try {
+    const r = await fetch(`${API}/models/build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json())
+
+    if (r.model_id) {
+      document.getElementById('builtModelInfo').innerHTML =
+        `✓ 构建成功！<br>model_id: <span class="mono">${r.model_id}</span><br>类型: ${r.model_type}<br>
+         <small style="color:#8b949e">复制 model_id 到训练/可视化页面使用</small>`
+      document.getElementById('trModelId').value = r.model_id
+      document.getElementById('visModelId').value = r.model_id
+      await loadModelList()
+      await showArchitecture(r.model_id, r.model_type)
+    } else {
+      document.getElementById('builtModelInfo').innerHTML =
+        `<span style="color:#f85149">构建失败: ${JSON.stringify(r)}</span>`
+    }
+  } catch (e) {
+    document.getElementById('builtModelInfo').innerHTML =
+      `<span style="color:#f85149">请求失败: ${e.message}</span>`
+  }
+}
+
+async function loadModelList() {
+  const models = await fetch(`${API}/models`).then(r => r.json())
+  const div = document.getElementById('modelList')
+  if (!models.length) { div.innerHTML = '<span style="color:#8b949e;font-size:13px">暂无模型</span>'; return }
+  div.innerHTML = models.map(m =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;
+                 padding:6px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:13px">
+       <div>
+         <span class="mono">${m.model_id}</span>
+         <span style="color:#8b949e;margin-left:8px">${m.type}</span>
+       </div>
+       <div style="display:flex;gap:5px;align-items:center">
+         <button onclick="showArchitecture('${m.model_id}','${m.type}')"
+                 style="background:none;border:1px solid #30363d;color:#79c0ff;cursor:pointer;
+                        font-size:11px;padding:2px 7px;border-radius:4px">架构</button>
+         <button onclick="saveModel('${m.model_id}')"
+                 style="background:none;border:1px solid #238636;color:#3fb950;cursor:pointer;
+                        font-size:11px;padding:2px 7px;border-radius:4px">保存</button>
+         <button onclick="deleteModel('${m.model_id}')"
+                 style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px;
+                        padding:0 4px;line-height:1" title="删除">✕</button>
+       </div>
+     </div>`
+  ).join('')
+}
+
+// ===== 模型架构可视化 =====
+const LAYER_COLORS = {
+  Conv2d: '#1f6feb', Linear: '#238636', BatchNorm2d: '#9e6a03',
+  ResidualBlock: '#6e40c9', LeNet: '#0d4a6e', AlexNet: '#0d4a6e',
+  VGG: '#0d4a6e', ResNet18: '#0d4a6e', default: '#2d333b',
+}
+const LAYER_TEXT = {
+  Conv2d: '#79c0ff', Linear: '#3fb950', BatchNorm2d: '#e3b341',
+  ResidualBlock: '#d2a8ff', default: '#8b949e',
+}
+
+function _flattenLayers(nodes, depth=0, result=[]) {
+  for (const n of nodes) {
+    result.push({ ...n, depth })
+    if (n.children && n.children.length)
+      _flattenLayers(n.children, depth + 1, result)
+  }
+  return result
+}
+
+async function showArchitecture(model_id, model_type) {
+  const card = document.getElementById('archCard')
+  card.style.display = 'block'
+  document.getElementById('archTitle').textContent =
+    `模型架构 — ${model_type} (${model_id})`
+  document.getElementById('archDiagram').innerHTML =
+    '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  document.getElementById('archLayerList').innerHTML = ''
+
+  const data = await fetch(`${API}/models/${model_id}/architecture`).then(r => r.json())
+  const flat  = _flattenLayers(data.layers)
+  const topLevel = data.layers  // only top-level for diagram
+
+  // ── 右侧层名列表（可点击复制）──
+  const listEl = document.getElementById('archLayerList')
+  listEl.innerHTML = '<div style="color:#8b949e;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em">可用层名称（点击填入）</div>'
+  flat.forEach(n => {
+    const indent = n.depth * 12
+    const color  = LAYER_TEXT[n.type] || LAYER_TEXT.default
+    const row = document.createElement('div')
+    row.style.cssText = `padding:3px 8px 3px ${8+indent}px;cursor:pointer;border-radius:4px;
+                         margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;
+                         background:#21262d`
+    row.innerHTML =
+      `<span style="color:${color};font-family:monospace;font-size:12px">${n.attr}</span>
+       <span style="color:#6e7681;font-size:10px">${n.type}</span>`
+    row.title = `点击填入可视化目标层: ${n.attr}`
+    row.onclick = () => {
+      document.getElementById('visLayer').value = n.attr
+      document.getElementById('visModelId').value = model_id
+      // 高亮反馈
+      row.style.background = '#0d2a5c'
+      setTimeout(() => row.style.background = '#21262d', 600)
+    }
+    listEl.appendChild(row)
+  })
+
+  // ── 左侧 SVG 架构图（仅顶层展开一级子层）──
+  const BOX_W = 200, BOX_H = 44, GAP = 28, PAD = 20
+  const nodes = topLevel
+
+  // 每个顶层节点展示为一个主 box，子层折叠为小标签
+  let svgRows = []
+  nodes.forEach((n, i) => {
+    const y = PAD + i * (BOX_H + GAP)
+    const bg = LAYER_COLORS[n.type] || LAYER_COLORS.default
+    const fg = LAYER_TEXT[n.type]  || LAYER_TEXT.default
+    const childTags = (n.children || []).map(c =>
+      `<tspan fill="${LAYER_TEXT[c.type]||'#8b949e'}" font-size="9">  ·${c.attr}</tspan>`
+    ).join('')
+
+    svgRows.push(`
+      <g class="arch-node" style="cursor:pointer" onclick="
+        document.getElementById('visLayer').value='${n.attr}';
+        document.getElementById('visModelId').value='${model_id}'">
+        <rect x="${PAD}" y="${y}" width="${BOX_W}" height="${BOX_H}"
+              rx="6" fill="${bg}" stroke="${fg}" stroke-width="1.2"/>
+        <text x="${PAD+BOX_W/2}" y="${y+17}" text-anchor="middle"
+              fill="${fg}" font-size="13" font-family="monospace" font-weight="600">${n.attr}</text>
+        <text x="${PAD+BOX_W/2}" y="${y+30}" text-anchor="middle"
+              fill="#6e7681" font-size="10" font-family="sans-serif">${n.type}</text>
+      </g>
+      ${i < nodes.length-1 ? `
+        <line x1="${PAD+BOX_W/2}" y1="${y+BOX_H}" x2="${PAD+BOX_W/2}" y2="${y+BOX_H+GAP}"
+              stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>` : ''}
+    `)
+  })
+
+  const totalH = PAD + nodes.length * (BOX_H + GAP) + PAD
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${BOX_W+PAD*2}" height="${totalH}"
+         style="display:block">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="4" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#30363d"/>
+        </marker>
+      </defs>
+      ${svgRows.join('')}
+    </svg>`
+
+  document.getElementById('archDiagram').innerHTML = svg
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function deleteModel(model_id) {
+  await fetch(`${API}/models/${model_id}`, { method: 'DELETE' })
+  await loadModelList()
+}
+
+async function saveModel(model_id) {
+  const name = prompt('保存为文件名（留空使用 model_id）：', model_id)
+  if (name === null) return
+  const r = await fetch(`${API}/models/${model_id}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || model_id }),
+  }).then(r => r.json())
+  if (r.ok) {
+    alert(`已保存为 ${r.file}`)
+    loadSavedList()
+  } else {
+    alert('保存失败: ' + JSON.stringify(r))
+  }
+}
+
+async function loadSavedList() {
+  const div = document.getElementById('savedModelList')
+  div.innerHTML = '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  const files = await fetch(`${API}/models/saved/list`).then(r => r.json())
+  if (!files.length) {
+    div.innerHTML = '<span style="color:#8b949e;font-size:12px">暂无已保存模型</span>'
+    return
+  }
+  div.innerHTML = files.map(f => {
+    const cfgBtn = f.has_config
+      ? `<button onclick="importConfig('${f.config_file || f.file}')"
+                 style="background:#6e40c9;border:none;color:#fff;cursor:pointer;
+                        font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap">
+           导入架构
+         </button>`
+      : `<span style="font-size:11px;color:#484f58;padding:3px 10px">无 config</span>`
+    return `<div style="display:flex;justify-content:space-between;align-items:center;
+                 padding:5px 10px;background:#21262d;border-radius:6px;margin-bottom:4px;font-size:12px">
+       <div style="overflow:hidden;margin-right:8px">
+         <span style="color:#e6edf3">${f.file}</span>
+         <span style="color:#8b949e;margin-left:8px">${f.model_type}</span>
+       </div>
+       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+         ${cfgBtn}
+         <button id="loadBtn_${CSS.escape(f.file)}" onclick="loadSavedModel('${f.file}')"
+                 style="background:#238636;border:none;color:#fff;cursor:pointer;
+                        font-size:11px;padding:3px 10px;border-radius:4px;min-width:52px">加载</button>
+       </div>
+     </div>`
+  }).join('')
+}
+
+async function importConfig(file) {
+  const infoEl = document.getElementById('builtModelInfo')
+  if (infoEl) infoEl.innerHTML = `<span style="color:#8b949e">正在导入架构 ${file}…</span>`
+  const r = await fetch(`${API}/models/saved/import-config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }),
+  }).then(r => r.json())
+  if (r.ok) {
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#a371f7">✓ 架构已导入（未加载权重）</span>　` +
+      `model_id: <span class="mono">${r.model_id}</span>　类型: ${r.model_type}`
+    document.getElementById('trModelId').value = r.model_id
+    document.getElementById('visModelId').value = r.model_id
+    await loadModelList()
+    await showArchitecture(r.model_id, r.model_type)
+  } else {
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#f85149">✗ 导入失败：${r.detail || JSON.stringify(r)}</span>`
+  }
+}
+
+async function loadSavedModel(file, targetModelId) {
+  // 按钮改为加载中状态
+  const btn = document.getElementById(`loadBtn_${CSS.escape(file)}`)
+  const infoEl = document.getElementById('builtModelInfo')
+  if (btn) { btn.textContent = '加载中…'; btn.disabled = true }
+  if (infoEl) infoEl.innerHTML = '<span style="color:#8b949e">正在加载 ' + file + '…</span>'
+
+  const body = { file }
+  if (targetModelId) body.target_model_id = targetModelId
+
+  const resp = await fetch(`${API}/models/saved/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const r = await resp.json()
+
+  const _resetBtn = () => {
+    if (btn) { btn.textContent = '加载'; btn.disabled = false }
+  }
+
+  // 文件缺少 model_config —— 让用户从已构建模型中选一个
+  if (!resp.ok && r.detail === 'NO_CONFIG') {
+    _resetBtn()
+    const models = await fetch(`${API}/models`).then(r => r.json())
+    if (!models.length) {
+      if (infoEl) infoEl.innerHTML =
+        '<span style="color:#f85149">该文件缺少 model_config，且当前无已构建模型。<br>请先在「模型设计」中构建同结构模型。</span>'
+      return
+    }
+    const options = models.map(m => `${m.model_id}（${m.type}）`).join('\n')
+    const chosen = prompt(
+      `该文件缺少 model_config，无法自动重建模型。\n` +
+      `请输入已构建模型的 ID（权重将注入其中）：\n\n` +
+      `当前已构建模型：\n${options}`,
+      models[0].model_id
+    )
+    if (chosen) await loadSavedModel(file, chosen.trim())
+    return
+  }
+
+  if (r.ok) {
+    _resetBtn()
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#3fb950">✓ 加载成功</span>　` +
+      `model_id: <span class="mono">${r.model_id}</span>　类型: ${r.model_type}`
+    document.getElementById('trModelId').value = r.model_id
+    document.getElementById('visModelId').value = r.model_id
+    await loadModelList()
+    await showArchitecture(r.model_id, r.model_type)
+  } else {
+    _resetBtn()
+    if (infoEl) infoEl.innerHTML =
+      `<span style="color:#f85149">✗ 加载失败：${r.detail || JSON.stringify(r)}</span>`
+  }
+}
+
+// ===== 数据集 =====
+function toggleCustomResize(val) {
+  document.getElementById('dsResizeCustom').style.display = val === 'custom' ? 'flex' : 'none'
+}
+
+function _getResizeWH() {
+  const mode = document.getElementById('dsResizeMode').value
+  if (mode === 'original') return { resize_w: 0, resize_h: 0 }
+  if (mode === 'custom') {
+    const w = parseInt(document.getElementById('dsResizeW').value) || 0
+    const h = parseInt(document.getElementById('dsResizeH').value) || 0
+    return { resize_w: w, resize_h: h }
+  }
+  const [w, h] = mode.split('x').map(Number)
+  return { resize_w: w, resize_h: h }
+}
+
+async function registerDataset() {
+  const name = document.getElementById('dsName').value.trim()
+  const path = document.getElementById('dsPath').value.trim()
+  const desc = document.getElementById('dsDesc').value.trim()
+  if (!name || !path) { alert('名称和路径必填'); return }
+
+  const { resize_w, resize_h } = _getResizeWH()
+  const r = await fetch(`${API}/datasets/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, path, description: desc, resize_w, resize_h }),
+  }).then(r => r.json())
+
+  if (r.dataset_id) {
+    document.getElementById('dsRegResult').innerHTML =
+      `✓ 注册成功！dataset_id: <span class="mono">${r.dataset_id}</span><br>
+       <button class="btn btn-blue" style="margin-top:6px;font-size:11px"
+         onclick="document.getElementById('trDatasetId').value='${r.dataset_id}'">
+         复制到训练配置
+       </button>`
+    loadDatasets()
+  } else {
+    document.getElementById('dsRegResult').innerHTML =
+      `<span style="color:#f85149">失败: ${JSON.stringify(r)}</span>`
+  }
+}
+
+let _datasetIds = []
+async function loadDatasets() {
+  const datasets = await fetch(`${API}/datasets`).then(r => r.json())
+  const div = document.getElementById('datasetList')
+  _datasetIds = datasets
+  _syncVisDatasetDropdown(datasets)
+  if (!datasets.length) { div.innerHTML = '<span style="color:#8b949e;font-size:13px">暂无数据集</span>'; return }
+  div.innerHTML = datasets.map(d =>
+    (() => {
+      const sz = d.img_size ? `${d.img_size[0]}×${d.img_size[1]}` : '原图'
+      return `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;font-size:13px">
+       <div style="display:flex;justify-content:space-between;align-items:center">
+         <strong>${d.name}</strong>
+         <span class="mono">${d.dataset_id}</span>
+       </div>
+       <div style="color:#8b949e;font-size:11px;margin-top:2px">${d.path}</div>
+       <div style="margin-top:4px">
+         <span style="font-size:11px;background:#0d2a5c;color:#58a6ff;padding:2px 8px;border-radius:10px">
+           输入尺寸：${sz}
+         </span>
+       </div>
+       <div style="margin-top:8px;display:flex;gap:6px">
+         <button class="btn btn-blue" style="font-size:11px;padding:4px 10px"
+           onclick="previewDataset('${d.dataset_id}','${d.name}')">预览</button>
+         <button class="btn" style="font-size:11px;padding:4px 10px;background:#21262d;border:1px solid #30363d"
+           onclick="document.getElementById('trDatasetId').value='${d.dataset_id}'">复制ID→训练</button>
+       </div>
+     </div>`
+    })()
+  ).join('')
+}
+
+async function previewDataset(id, name) {
+  const card = document.getElementById('dsPreviewCard')
+  card.style.display = 'block'
+  document.getElementById('dsPreviewTitle').textContent = `— ${name}`
+  document.getElementById('dsPreviewGrid').innerHTML = '<span style="color:#8b949e">加载中…</span>'
+
+  const r = await fetch(`${API}/datasets/${id}/preview?n=12`).then(r => r.json())
+  const grid = document.getElementById('dsPreviewGrid')
+  if (!r.samples || !r.samples.length) {
+    grid.innerHTML = '<span style="color:#f85149">无法加载预览（检查路径格式）</span>'
+    return
+  }
+  grid.innerHTML = r.samples.map(s =>
+    `<figure>
+       <img src="data:image/png;base64,${s.image}" style="width:80px;height:80px;object-fit:cover" />
+       <figcaption>label: ${s.label}</figcaption>
+     </figure>`
+  ).join('')
+}
+
+// ===== 训练 =====
+let currentTaskId = null
+let eventSource = null
+let lossChart = null
+let accChart = null
+let batchChart = null
+const lossData  = { epochs: [], train: [], val: [] }
+const accData   = { epochs: [], train: [], val: [] }
+const batchData = { labels: [], loss: [], acc: [] }
+const BATCH_WINDOW = 80  // 最多显示最近 N 个 batch
+
+function initCharts() {
+  lossChart  = echarts.init(document.getElementById('chartLoss'),  'dark')
+  accChart   = echarts.init(document.getElementById('chartAcc'),   'dark')
+  batchChart = echarts.init(document.getElementById('chartBatch'), 'dark')
+
+  const epochOpt = (names, yLabel) => ({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: names, textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: {
+      type: 'category', data: [],
+      name: 'Epoch', nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      boundaryGap: false,
+    },
+    yAxis: {
+      type: 'value', name: yLabel, nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      splitLine: { lineStyle: { color: '#21262d' } },
+    },
+    series: names.map((n, i) => ({
+      name: n, type: 'line', smooth: true, data: [],
+      lineStyle: { width: 2 },
+      symbol: 'circle', symbolSize: 6,
+      itemStyle: { color: i === 0 ? '#58a6ff' : '#3fb950' },
+    })),
+    grid: { left: '7%', right: '3%', top: '40px', bottom: '36px' },
+  })
+
+  lossChart.setOption(epochOpt(['Train Loss', 'Val Loss'], 'Loss'))
+  accChart.setOption(epochOpt(['Train Acc', 'Val Acc'], 'Acc'))
+
+  batchChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Batch Loss', 'Batch Acc'], textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: {
+      type: 'category', data: [],
+      name: 'Batch', nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e', show: false },
+      boundaryGap: false,
+    },
+    yAxis: [
+      { type: 'value', name: 'Loss', nameTextStyle: { color: '#8b949e' },
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#8b949e' },
+        splitLine: { lineStyle: { color: '#21262d' } } },
+      { type: 'value', name: 'Acc', nameTextStyle: { color: '#8b949e' },
+        min: 0, max: 1,
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#8b949e' },
+        splitLine: { show: false } },
+    ],
+    series: [
+      { name: 'Batch Loss', type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#f0883e' }, yAxisIndex: 0 },
+      { name: 'Batch Acc',  type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#a371f7' }, yAxisIndex: 1 },
+    ],
+    grid: { left: '8%', right: '8%', top: '40px', bottom: '24px' },
+  })
+}
+
+function _resetCharts(totalEpochs) {
+  lossData.epochs = []; lossData.train = []; lossData.val = []
+  accData.epochs  = []; accData.train  = []; accData.val  = []
+  batchData.labels = []; batchData.loss = []; batchData.acc = []
+
+  const xEpoch = Array.from({length: totalEpochs}, (_, i) => i + 1)
+  const emptyEpoch = Array(totalEpochs).fill(null)
+
+  lossChart.setOption({
+    xAxis: { data: xEpoch },
+    series: [{ data: [...emptyEpoch] }, { data: [...emptyEpoch] }]
+  })
+  accChart.setOption({
+    xAxis: { data: xEpoch },
+    series: [{ data: [...emptyEpoch] }, { data: [...emptyEpoch] }]
+  })
+  batchChart.setOption({
+    xAxis: { data: [] },
+    series: [{ data: [] }, { data: [] }]
+  })
+}
+
+let _globalBatch = 0
+
+async function startTraining() {
+  const body = {
+    model_id:   document.getElementById('trModelId').value.trim(),
+    dataset_id: document.getElementById('trDatasetId').value.trim(),
+    epochs:     +document.getElementById('trEpochs').value,
+    batch_size: +document.getElementById('trBatch').value,
+    lr:         +document.getElementById('trLr').value,
+    optimizer:  document.getElementById('trOptim').value,
+    device:     document.getElementById('trDevice').value,
+    val_split:  +document.getElementById('trValSplit').value,
+  }
+  if (!body.model_id || !body.dataset_id) { alert('请填写 Model ID 和 Dataset ID'); return }
+
+  _resetCharts(body.epochs)
+  _globalBatch = 0
+
+  try {
+    const r = await fetch(`${API}/training/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json())
+
+    if (!r.task_id) {
+      document.getElementById('trError').innerHTML =
+        `<div class="error-box">启动失败: ${JSON.stringify(r)}</div>`
+      return
+    }
+    currentTaskId = r.task_id
+    document.getElementById('trTaskId').textContent = `task_id: ${currentTaskId}`
+    document.getElementById('trError').innerHTML = ''
+    setTrainingStatus('running')
+
+    if (eventSource) eventSource.close()
+    eventSource = new EventSource(`${API}/training/${currentTaskId}/stream`)
+
+    eventSource.addEventListener('batch', e => {
+      const d = JSON.parse(e.data)
+      _globalBatch++
+      document.getElementById('batchChartLabel').textContent =
+        `Epoch ${d.epoch} · Batch ${d.batch + 1}`
+
+      batchData.labels.push(_globalBatch)
+      batchData.loss.push(d.batch_loss != null ? +d.batch_loss.toFixed(4) : null)
+      batchData.acc.push(d.batch_acc  != null ? +d.batch_acc.toFixed(4)  : null)
+
+      // 滑动窗口
+      if (batchData.labels.length > BATCH_WINDOW) {
+        batchData.labels.shift(); batchData.loss.shift(); batchData.acc.shift()
+      }
+      batchChart.setOption({
+        xAxis: { data: batchData.labels },
+        series: [{ data: batchData.loss }, { data: batchData.acc }]
+      })
+    })
+
+    eventSource.addEventListener('epoch', e => {
+      const d = JSON.parse(e.data)
+      const idx = d.epoch - 1
+      lossData.train[idx] = +d.train_loss.toFixed(4)
+      lossData.val[idx]   = +d.val_loss.toFixed(4)
+      accData.train[idx]  = +d.train_acc.toFixed(4)
+      accData.val[idx]    = +d.val_acc.toFixed(4)
+      lossChart.setOption({ series: [{ data: [...lossData.train] }, { data: [...lossData.val] }] })
+      accChart.setOption({  series: [{ data: [...accData.train]  }, { data: [...accData.val]  }] })
+    })
+
+    eventSource.addEventListener('done', e => {
+      setTrainingStatus(JSON.parse(e.data).status || 'finished')
+      eventSource.close()
+    })
+    eventSource.addEventListener('error', e => {
+      try {
+        document.getElementById('trError').innerHTML =
+          `<div class="error-box">训练错误: ${JSON.parse(e.data).message}</div>`
+      } catch {}
+      setTrainingStatus('error')
+      eventSource.close()
+    })
+  } catch (err) {
+    document.getElementById('trError').innerHTML =
+      `<div class="error-box">请求失败: ${err.message}</div>`
+  }
+}
+
+async function stopTraining() {
+  if (!currentTaskId) return
+  await fetch(`${API}/training/${currentTaskId}/stop`, { method: 'POST' })
+  if (eventSource) eventSource.close()
+  setTrainingStatus('stopped')
+}
+
+function setTrainingStatus(status) {
+  const el = document.getElementById('trStatus')
+  el.textContent = status
+  el.className = `badge badge-${status}`
+  const running = status === 'running'
+  document.getElementById('btnStart').disabled = running
+  document.getElementById('btnStop').disabled = !running
+}
+
+// ===== 可视化 =====
+let visImageB64 = null
+
+function _setVisImage(b64, labelText) {
+  visImageB64 = b64
+  document.getElementById('visPreview').innerHTML =
+    `<img src="data:image/png;base64,${b64}"
+          style="max-height:100px;border-radius:6px;border:1px solid #30363d" />
+     ${labelText ? `<div style="font-size:11px;color:#8b949e;margin-top:4px">${labelText}</div>` : ''}`
+  document.getElementById('btnGradcam').disabled = false
+  document.getElementById('btnFeatMaps').disabled = false
+}
+
+async function loadVisDatasetSamples() {
+  const dsId = document.getElementById('visDatasetSelect').value
+  const container = document.getElementById('visDatasetSamples')
+  container.innerHTML = ''
+  if (!dsId) return
+  container.innerHTML = '<span style="color:#8b949e;font-size:12px">加载中…</span>'
+  try {
+    const r = await fetch(`${API}/datasets/${dsId}/preview?n=20`).then(r => r.json())
+    if (!r.samples || !r.samples.length) {
+      container.innerHTML = '<span style="color:#f85149;font-size:12px">无法加载样本</span>'
+      return
+    }
+    container.innerHTML = ''
+    r.samples.forEach((s, i) => {
+      const fig = document.createElement('figure')
+      fig.innerHTML = `<img src="data:image/png;base64,${s.image}"
+                            style="width:56px;height:56px;object-fit:cover;border-radius:4px;display:block" />
+                       <figcaption>label ${s.label}</figcaption>`
+      fig.onclick = () => {
+        container.querySelectorAll('figure').forEach(f => f.classList.remove('selected'))
+        fig.classList.add('selected')
+        _setVisImage(s.image, `数据集样本 #${i}  label=${s.label}`)
+      }
+      container.appendChild(fig)
+    })
+  } catch (e) {
+    container.innerHTML = `<span style="color:#f85149;font-size:12px">请求失败: ${e.message}</span>`
+  }
+}
+
+function _syncVisDatasetDropdown(datasets) {
+  const sel = document.getElementById('visDatasetSelect')
+  const cur = sel.value
+  sel.innerHTML = '<option value="">— 请选择 —</option>'
+  datasets.forEach(d => {
+    const opt = document.createElement('option')
+    opt.value = d.dataset_id
+    opt.textContent = `${d.name}  (${d.dataset_id})`
+    sel.appendChild(opt)
+  })
+  if (cur) sel.value = cur
+}
+
+function onImageFile(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = ev => {
+    const dataUrl = ev.target.result
+    document.getElementById('visDatasetSamples')
+      .querySelectorAll('figure').forEach(f => f.classList.remove('selected'))
+    _setVisImage(dataUrl.split(',')[1], file.name)
+  }
+  reader.readAsDataURL(file)
+}
+
+async function doGradcam() {
+  const model_id = document.getElementById('visModelId').value.trim()
+  const layer    = document.getElementById('visLayer').value.trim()
+  if (!model_id || !layer) { alert('请填写 Model ID 和层名称'); return }
+  document.getElementById('gradcamResult').innerHTML = '<span style="color:#8b949e">推理中…</span>'
+  document.getElementById('visError').innerHTML = ''
+
+  try {
+    const r = await fetch(`${API}/explain/gradcam`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id, image_base64: visImageB64, target_layer_name: layer }),
+    }).then(r => r.json())
+
+    if (r.heatmap) {
+      document.getElementById('gradcamResult').innerHTML = `
+        <figure>
+          <img src="data:image/png;base64,${r.heatmap}" />
+          <figcaption>热力图</figcaption>
+        </figure>
+        <figure>
+          <img src="data:image/png;base64,${r.overlay}" />
+          <figcaption>叠加图</figcaption>
+        </figure>`
+    } else {
+      document.getElementById('visError').innerHTML =
+        `<div class="error-box">${JSON.stringify(r)}</div>`
+      document.getElementById('gradcamResult').innerHTML = '<span style="color:#8b949e">推理失败</span>'
+    }
+  } catch (e) {
+    document.getElementById('visError').innerHTML =
+      `<div class="error-box">请求失败: ${e.message}</div>`
+  }
+}
+
+async function doFeatureMaps() {
+  const model_id = document.getElementById('visModelId').value.trim()
+  const layer    = document.getElementById('visLayer').value.trim()
+  if (!model_id || !layer) { alert('请填写 Model ID 和层名称'); return }
+  document.getElementById('featureMapsGrid').innerHTML = '<span style="color:#8b949e">推理中…</span>'
+  document.getElementById('visError').innerHTML = ''
+
+  try {
+    const r = await fetch(`${API}/explain/feature_maps`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id, image_base64: visImageB64, target_layer_name: layer }),
+    }).then(r => r.json())
+
+    if (r.maps) {
+      document.getElementById('featMapCount').textContent = `(${r.num_channels} 通道)`
+      document.getElementById('featureMapsGrid').innerHTML = r.maps.map(m =>
+        `<figure>
+           <img src="data:image/png;base64,${m.image}" style="width:64px;height:64px;object-fit:cover" />
+           <figcaption>Ch ${m.channel}</figcaption>
+         </figure>`
+      ).join('')
+    } else {
+      document.getElementById('visError').innerHTML =
+        `<div class="error-box">${JSON.stringify(r)}</div>`
+    }
+  } catch (e) {
+    document.getElementById('visError').innerHTML =
+      `<div class="error-box">请求失败: ${e.message}</div>`
+  }
+}
+
+// ===== 系统资源监控 =====
+let _gauCpu = null, _gauMem = null, _gauGpu = null
+let _sysMonTimer = null
+
+function _makeGauge(domId, label, color) {
+  const c = echarts.init(document.getElementById(domId), 'dark')
+  c.setOption({
+    backgroundColor: 'transparent',
+    series: [{
+      type: 'gauge',
+      radius: '90%',
+      center: ['50%', '60%'],
+      startAngle: 200, endAngle: -20,
+      min: 0, max: 100,
+      axisLine: {
+        lineStyle: {
+          width: 10,
+          color: [[1, '#21262d']],
+        }
+      },
+      progress: { show: true, width: 10, itemStyle: { color } },
+      pointer: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: { show: false },
+      detail: {
+        valueAnimation: true,
+        formatter: '{value}%',
+        color,
+        fontSize: 13,
+        offsetCenter: [0, '-10%'],
+      },
+      data: [{ value: 0, name: label }],
+      title: { show: false },
+    }],
+  })
+  return c
+}
+
+function initSysGauges() {
+  _gauCpu = _makeGauge('sysGaugeCpu', 'CPU', '#f0883e')
+  _gauMem = _makeGauge('sysGaugeMem', 'MEM', '#58a6ff')
+  _gauGpu = _makeGauge('sysGaugeGpu', 'GPU', '#3fb950')
+}
+
+async function pollSysStats() {
+  try {
+    const s = await fetch(`${API}/system/stats`).then(r => r.json())
+    const cpu = Math.round(s.cpu_percent)
+    const mem = Math.round(s.mem_percent)
+    document.getElementById('sysCpuPct').textContent = cpu
+    document.getElementById('sysMemPct').textContent = mem
+    document.getElementById('sysMemGB').textContent =
+      `${s.mem_used_gb} / ${s.mem_total_gb} GB`
+    _gauCpu && _gauCpu.setOption({ series: [{ data: [{ value: cpu }] }] })
+    _gauMem && _gauMem.setOption({ series: [{ data: [{ value: mem }] }] })
+
+    if (s.gpu) {
+      const gpu = Math.round(s.gpu.gpu_percent)
+      document.getElementById('sysGpuPct').textContent = gpu
+      document.getElementById('sysGpuMem').textContent =
+        `${s.gpu.mem_used_gb} / ${s.gpu.mem_total_gb} GB`
+      _gauGpu && _gauGpu.setOption({ series: [{ data: [{ value: gpu }] }] })
+      document.getElementById('sysGpuCol').style.opacity = '1'
+    } else {
+      document.getElementById('sysGpuCol').style.opacity = '0.35'
+      document.getElementById('sysGpuPct').textContent = 'N/A'
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// ===== 外部监控 =====
+let _monEs = null          // EventSource
+let _monChartBatch = null
+let _monChartLoss  = null
+let _monChartAcc   = null
+let _monGauCpu = null, _monGauMem = null, _monGauGpu = null
+let _monSysTimer = null
+let _monElapsedTimer = null
+let _monStartTs = null     // unix timestamp (s) when run started
+const _monBatch = { labels: [], loss: [], acc: [] }
+const _monEpoch = { epochs: [], trainLoss: [], valLoss: [], trainAcc: [], valAcc: [] }
+const MON_BATCH_WINDOW = 80
+
+function _initMonCharts() {
+  if (_monChartBatch) return
+  _monChartBatch = echarts.init(document.getElementById('monChartBatch'), 'dark')
+  _monChartLoss  = echarts.init(document.getElementById('monChartLoss'),  'dark')
+  _monChartAcc   = echarts.init(document.getElementById('monChartAcc'),   'dark')
+
+  const baseOpt = (names, yLabel) => ({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: names, textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: { type: 'category', data: [], boundaryGap: false,
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' } },
+    yAxis: { type: 'value', name: yLabel, nameTextStyle: { color: '#8b949e' },
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e' },
+      splitLine: { lineStyle: { color: '#21262d' } } },
+    series: names.map((n, i) => ({
+      name: n, type: 'line', smooth: true, data: [],
+      lineStyle: { width: 2 }, symbol: 'circle', symbolSize: 5,
+      itemStyle: { color: i === 0 ? '#58a6ff' : '#3fb950' },
+    })),
+    grid: { left: '8%', right: '3%', top: '40px', bottom: '36px' },
+  })
+  _monChartLoss.setOption(baseOpt(['Train Loss', 'Val Loss'], 'Loss'))
+  _monChartAcc.setOption(baseOpt(['Train Acc',  'Val Acc'],  'Acc'))
+
+  _monChartBatch.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Batch Loss', 'Batch Acc'], textStyle: { color: '#8b949e' }, top: 4 },
+    xAxis: { type: 'category', data: [], boundaryGap: false,
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { show: false } },
+    yAxis: [
+      { type: 'value', name: 'Loss', nameTextStyle: { color: '#8b949e' },
+        axisLabel: { color: '#8b949e' }, splitLine: { lineStyle: { color: '#21262d' } } },
+      { type: 'value', name: 'Acc', min: 0, max: 1,
+        axisLabel: { color: '#8b949e' }, splitLine: { show: false } },
+    ],
+    series: [
+      { name: 'Batch Loss', type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#f0883e' }, yAxisIndex: 0 },
+      { name: 'Batch Acc',  type: 'line', smooth: true, data: [],
+        lineStyle: { width: 1.5 }, showSymbol: false,
+        itemStyle: { color: '#a371f7' }, yAxisIndex: 1 },
+    ],
+    grid: { left: '8%', right: '8%', top: '40px', bottom: '24px' },
+  })
+
+  _monGauCpu = _makeGauge('monGaugeCpu', 'CPU', '#f0883e')
+  _monGauMem = _makeGauge('monGaugeMem', 'MEM', '#58a6ff')
+  _monGauGpu = _makeGauge('monGaugeGpu', 'GPU', '#3fb950')
+}
+
+function _fmtElapsed(sec) {
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
+  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`
+  return `${s}s`
+}
+
+function _monResetData() {
+  _monBatch.labels = []; _monBatch.loss = []; _monBatch.acc = []
+  _monEpoch.epochs = []; _monEpoch.trainLoss = []; _monEpoch.valLoss = []
+  _monEpoch.trainAcc = []; _monEpoch.valAcc = []
+}
+
+function _monHandleEvent(ev) {
+  const d = ev
+  if (d.type === 'done') {
+    document.getElementById('monRunBadge').className   = 'badge badge-finished'
+    document.getElementById('monRunBadge').textContent = '已完成'
+    clearInterval(_monElapsedTimer); _monElapsedTimer = null
+    return
+  }
+  if (d.type === 'batch') {
+    _monBatch.labels.push(`E${d.epoch}B${d.batch}`)
+    _monBatch.loss.push(d.batch_loss ?? null)
+    _monBatch.acc.push(d.batch_acc  ?? null)
+    if (_monBatch.labels.length > MON_BATCH_WINDOW) {
+      _monBatch.labels.shift(); _monBatch.loss.shift(); _monBatch.acc.shift()
+    }
+    document.getElementById('monBatch').textContent = d.batch
+    document.getElementById('monEpoch').textContent = d.epoch
+    if (d.batch_loss != null) document.getElementById('monLoss').textContent = d.batch_loss.toFixed(4)
+    if (d.batch_acc  != null) document.getElementById('monAcc').textContent  = d.batch_acc.toFixed(4)
+    document.getElementById('monBatchLabel').textContent =
+      `epoch ${d.epoch} · batch ${d.batch}`
+    _monChartBatch && _monChartBatch.setOption({
+      xAxis:  { data: [..._monBatch.labels] },
+      series: [{ data: [..._monBatch.loss] }, { data: [..._monBatch.acc] }],
+    })
+  } else if (d.type === 'epoch') {
+    const ep = d.epoch
+    if (!_monEpoch.epochs.includes(ep)) _monEpoch.epochs.push(ep)
+    const idx = _monEpoch.epochs.indexOf(ep)
+    const set = (arr, val) => { while (arr.length <= idx) arr.push(null); arr[idx] = val ?? null }
+    set(_monEpoch.trainLoss, d.train_loss); set(_monEpoch.valLoss, d.val_loss)
+    set(_monEpoch.trainAcc,  d.train_acc);  set(_monEpoch.valAcc,  d.val_acc)
+    document.getElementById('monEpoch').textContent = ep
+    _monChartLoss && _monChartLoss.setOption({
+      xAxis:  { data: [..._monEpoch.epochs] },
+      series: [{ data: [..._monEpoch.trainLoss] }, { data: [..._monEpoch.valLoss] }],
+    })
+    _monChartAcc && _monChartAcc.setOption({
+      xAxis:  { data: [..._monEpoch.epochs] },
+      series: [{ data: [..._monEpoch.trainAcc] }, { data: [..._monEpoch.valAcc] }],
+    })
+  }
+}
+
+async function monRefreshRuns() {
+  const runs = await fetch(`${API}/monitor/runs`).then(r => r.json())
+  const div = document.getElementById('monRunList')
+  if (!runs.length) { div.innerHTML = '<span style="color:#8b949e">暂无运行记录</span>'; return }
+  div.innerHTML = runs.map(r => {
+    const ago = Math.round((Date.now()/1000 - r.last_ts))
+    const active = ago < 10
+    return `<div style="background:#21262d;border-radius:6px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <strong style="font-size:13px">${r.run_name}</strong>
+        <span class="mono" style="margin-left:8px;font-size:11px">${r.run_id}</span><br>
+        <span style="font-size:11px;color:#8b949e">${r.events} 事件 · ${ago}s 前更新</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="badge ${active ? 'badge-running' : 'badge-finished'}">${active ? '活跃' : '结束'}</span>
+        <button class="btn btn-blue" style="font-size:11px;padding:4px 10px"
+          onclick="monConnect('${r.run_id}','${r.run_name}',${r.start_ts})">连接</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:4px 10px"
+          onclick="monDeleteRun('${r.run_id}')">删除</button>
+      </div>
+    </div>`
+  }).join('')
+}
+
+function monConnect(runId, runName, startTs) {
+  monDisconnect()
+  _monResetData()
+  _initMonCharts()
+  requestAnimationFrame(() => {
+    _monChartBatch && _monChartBatch.resize()
+    _monChartLoss  && _monChartLoss.resize()
+    _monChartAcc   && _monChartAcc.resize()
+    _monGauCpu && _monGauCpu.resize()
+    _monGauMem && _monGauMem.resize()
+    _monGauGpu && _monGauGpu.resize()
+  })
+
+  document.getElementById('monRunName').textContent  = runName
+  document.getElementById('monRunBadge').className   = 'badge badge-running'
+  document.getElementById('monRunBadge').textContent = '连接中'
+  document.getElementById('monStopBtn').style.display = ''
+
+  // 已运行时间：从 run 的 start_ts 开始计
+  _monStartTs = startTs || (Date.now() / 1000)
+  clearInterval(_monElapsedTimer)
+  const elapsedEl = document.getElementById('monElapsed')
+  const tick = () => {
+    elapsedEl.textContent = _fmtElapsed(Math.floor(Date.now() / 1000 - _monStartTs))
+  }
+  tick()
+  _monElapsedTimer = setInterval(tick, 1000)
+
+  _monEs = new EventSource(`${API}/monitor/stream/${runId}`)
+  _monEs.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data)
+      _monHandleEvent(d)
+      if (d.type !== 'done') {
+        document.getElementById('monRunBadge').className   = 'badge badge-running'
+        document.getElementById('monRunBadge').textContent = '实时'
+      }
+    } catch {}
+  }
+  _monEs.onerror = () => {
+    document.getElementById('monRunBadge').className   = 'badge badge-stopped'
+    document.getElementById('monRunBadge').textContent = '中断'
+  }
+
+  // 系统资源轮询
+  clearInterval(_monSysTimer)
+  _monSysTimer = setInterval(async () => {
+    try {
+      const s = await fetch(`${API}/system/stats`).then(r => r.json())
+      const cpu = Math.round(s.cpu_percent), mem = Math.round(s.mem_percent)
+      document.getElementById('monCpuPct').textContent = cpu
+      document.getElementById('monMemPct').textContent = mem
+      document.getElementById('monMemGB').textContent  = `${s.mem_used_gb}/${s.mem_total_gb}GB`
+      _monGauCpu && _monGauCpu.setOption({ series: [{ data: [{ value: cpu }] }] })
+      _monGauMem && _monGauMem.setOption({ series: [{ data: [{ value: mem }] }] })
+      if (s.gpu) {
+        const gpu = Math.round(s.gpu.gpu_percent)
+        document.getElementById('monGpuPct').textContent = gpu
+        document.getElementById('monGpuMem').textContent = `${s.gpu.mem_used_gb}/${s.gpu.mem_total_gb}GB`
+        _monGauGpu && _monGauGpu.setOption({ series: [{ data: [{ value: gpu }] }] })
+        document.getElementById('monGpuCol').style.opacity = '1'
+      } else {
+        document.getElementById('monGpuCol').style.opacity = '0.35'
+      }
+    } catch {}
+  }, 2000)
+}
+
+function monDisconnect() {
+  if (_monEs) { _monEs.close(); _monEs = null }
+  clearInterval(_monSysTimer);    _monSysTimer = null
+  clearInterval(_monElapsedTimer); _monElapsedTimer = null
+  document.getElementById('monRunBadge').className   = 'badge badge-idle'
+  document.getElementById('monRunBadge').textContent = 'idle'
+  document.getElementById('monStopBtn').style.display = 'none'
+  document.getElementById('monElapsed').textContent  = '—'
+}
+
+async function monDeleteRun(runId) {
+  await fetch(`${API}/monitor/runs/${runId}`, { method: 'DELETE' })
+  monRefreshRuns()
+}
+
+// ===== 初始化 =====
+window.onload = () => {
+  checkApi()
+  loadPresets()
+  loadModelList()
+  loadSavedList()
+  loadDatasets()
+  initCharts()
+  initSysGauges()
+  pollSysStats()
+  _sysMonTimer = setInterval(pollSysStats, 2000)
+  setInterval(checkApi, 10000)
+}
+</script>
+</body>
+</html>

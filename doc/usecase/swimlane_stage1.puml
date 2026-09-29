@@ -1,0 +1,47 @@
+@startuml EnNeuro_Swimlane_Stage1
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "SimSun"
+skinparam defaultFontSize 14
+skinparam activity {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+    ArrowColor #000000
+}
+skinparam arrowColor #000000
+skinparam boundary {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam partition {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+|User|
+|Trainer|
+|Data|
+|AO|
+
+start
+partition "用户配置训练参数" {
+    :配置epochs、batch_size;
+    :配置lr、正则化参数;
+    :启用早停策略;
+}
+:传递参数配置;
+partition "初始化数据加载器" {
+    :构建数据集;
+    :注册图像增强变换;
+    :创建多进程DataLoader;
+}
+:返回DataLoader;
+partition "启用算子优化" {
+    :捕获静态计算图;
+    :模式匹配与算子融合;
+    :生成融合层模型;
+}
+:返回优化模型;
+stop
+
+@enduml

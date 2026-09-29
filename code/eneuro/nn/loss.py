@@ -48,17 +48,27 @@ class MSELoss(Function):
             t = t.reshape(len(t), 1)
         # 关键修复：使用to_xp函数正确转换数组类型
         t_data = to_xp(t, xp)
+        # Keep the target in the prediction dtype.  In particular, CuPy's
+        # scalar division can otherwise promote a float32 regression graph to
+        # float64 before the first convolution backward pass.
+        if hasattr(t_data, 'dtype') and t_data.dtype != x.dtype:
+            t_data = xp.asarray(t_data, dtype=x.dtype)
         self.x = x
         self.t = t_data
         self.diff = x - t_data
-        y = xp.sum(self.diff ** 2) / len(x)
+        batch_scale = xp.asarray(len(x), dtype=x.dtype)
+        y = xp.sum(self.diff ** 2) / batch_scale
         return y
 
     def backward(self, dout=1):
-        dx = 2 * self.diff / len(self.diff)
-        
         xp = get_array_module(self.diff)
+        dtype = self.diff.dtype
+        two = xp.asarray(2, dtype=dtype)
+        batch_scale = xp.asarray(len(self.diff), dtype=dtype)
+        dx = two * self.diff / batch_scale
         dout = to_xp(dout, xp)
+        if hasattr(dout, 'dtype') and dout.dtype != dtype:
+            dout = xp.asarray(dout, dtype=dtype)
         return as_Tensor(dx) * dout
 
 class SoftmaxWithLoss(Function):

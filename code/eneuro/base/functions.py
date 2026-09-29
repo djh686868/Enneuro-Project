@@ -16,6 +16,12 @@ from .core import Config
 import builtins
 
 
+def _cuda_backend_enabled():
+    # 与 dispatch.set_backend 保持同一状态来源；不能只读取进程启动时的环境变量。
+    from .cuda import get_backend
+    return get_backend() in ('rawmodule', 'auto')
+
+
 _CPU_TILED_ENABLED = os.environ.get("ENE_CONV_CPU_TILED", "1") != "0"
 _CPU_TILED_MIN_OH_OW = int(os.environ.get("ENE_CONV_CPU_TILED_MIN_OH_OW", "4096"))
 _CPU_TILE_TARGET_BYTES = int(os.environ.get("ENE_CONV_CPU_TILE_TARGET_BYTES", "262144"))
@@ -126,6 +132,14 @@ class Exp(Function):
     def forward(self,*xs):
         xs = xs[0]
         xp = get_array_module(xs)
+        if xp is not np and _cuda_backend_enabled():
+            try:
+                from .cuda import exp_forward
+                return exp_forward(xs)
+            except Exception:
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
         return xp.exp(xs)
     def backward(self, gys):
         x = self.inputs[0].data
@@ -147,6 +161,14 @@ class Log(Function):
     def forward(self,*xs):
         xs=xs[0]
         xp = get_array_module(xs)
+        if xp is not np and _cuda_backend_enabled():
+            try:
+                from .cuda import log_forward
+                return log_forward(xs)
+            except Exception:
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
         return xp.log(xs)
     def backward(self, gys):
         x = self.inputs[0].data
@@ -448,6 +470,16 @@ class Linear(Function):
             return y
         else:
             b_data = to_xp(b, xp)
+            # 矩阵乘法继续交给 CuPy/cuBLAS；这里只替换 bias 加法，保持
+            # Linear 的权重布局、梯度公式和公共接口不变。
+            if xp is not np and _cuda_backend_enabled():
+                try:
+                    from .cuda import bias_add_forward
+                    return bias_add_forward(y, b_data)
+                except Exception:
+                    from .cuda import get_backend
+                    if get_backend() == 'rawmodule':
+                        raise
             return y + b_data 
     def backward (self,gys):
         x,w,b = self.inputs
@@ -483,11 +515,31 @@ class ReLU(Function):
     def forward(self, *xs):
         x = xs[0]
         xp = get_array_module(x)
+        # rawmodule/auto 模式使用自研 ReLU kernel；x<=0 的输出为 0，反向
+        # 同样按 x>0 传递梯度，确保与原 NumPy/CuPy 定义一致。
+        if xp is not np:
+            try:
+                from .cuda import get_backend, relu_forward
+                if get_backend() in ('rawmodule', 'auto'):
+                    return relu_forward(x)
+            except Exception:
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
         y = xp.maximum(x, 0.0)
         return y
 
     def backward(self, gys):
         x, = self.inputs
+        if get_array_module(x.data) is not np:
+            try:
+                from .cuda import get_backend, relu_backward
+                if get_backend() in ('rawmodule', 'auto'):
+                    return as_Tensor(relu_backward(x.data, gys.data))
+            except Exception:
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
         mask = x.data > 0
         gx = gys * mask
         return gx
@@ -983,6 +1035,21 @@ class Conv2d(Function):
         #print(f"x.dtype = {x.dtype}")
         W = xs[1]
         b = xs[2]
+        if (has_cupy and isinstance(x, cp.ndarray) and isinstance(W.data if isinstance(W, Tensor) else W, cp.ndarray)
+                and _cuda_backend_enabled()
+                and getattr(self, 'dilation', (1, 1)) == (1, 1)):
+            try:
+                from .cuda import conv2d_forward
+                self._cuda_fast_path = True
+                return conv2d_forward(x, W.data if isinstance(W, Tensor) else W,
+                                       b.data if isinstance(b, Tensor) else b,
+                                       self.stride, self.pad, self.dilation)
+            except Exception:
+                self._cuda_fast_path = False
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
+        self._cuda_fast_path = False
         self._fw_workspace = None
         self._fw_workspace_version = None
         self._used_fft = False
@@ -1008,6 +1075,12 @@ class Conv2d(Function):
 
     def backward(self, gys):
         x, W, b = self.inputs
+        if getattr(self, '_cuda_fast_path', False):
+            from .cuda import conv2d_backward
+            gx, gW, gb = conv2d_backward(gys.data, x.data, W.data,
+                                         b.data if isinstance(b, Tensor) else b,
+                                         self.stride, self.pad, self.dilation)
+            return as_Tensor(gx), as_Tensor(gW), as_Tensor(gb) if gb is not None else None
         if getattr(self, '_used_winograd', False):
             self._used_winograd_backward = True
             return self.winograd_conv2d_backward(gys, x, W, b)
@@ -1456,7 +1529,14 @@ class Conv2d(Function):
 
         # --- 4. 权重变换 U = G g G^T（仅用稳定轻量 key 缓存） ---
         # 这里不回退到 im2col；仅优化 Winograd 本路径。
-        w_ptr = int(W_work.__array_interface__['data'][0])
+        # NumPy exposes ``__array_interface__`` while CuPy exposes
+        # ``__cuda_array_interface__``.  The same cache key is useful on both
+        # devices, but accessing the host-only attribute on a CuPy array
+        # raises before the Winograd path can run.
+        if hasattr(W_work, '__cuda_array_interface__'):
+            w_ptr = int(W_work.__cuda_array_interface__['data'][0])
+        else:
+            w_ptr = int(W_work.__array_interface__['data'][0])
         u_cache_key = (w_ptr, W_work.shape, W_work.dtype.str, dtype_key)
         cached_u = cls._winograd_u_cache.get(u_cache_key)
         if cached_u is None:
@@ -1513,7 +1593,9 @@ class Conv2d(Function):
         V16T = xp.ascontiguousarray(V16T.reshape(16, C, N * tile_h * tile_w))
 
         M16 = workspace['M16']
-        np.matmul(U16, V16T, out=M16)
+        # Dispatch the batched matrix product to the active array module so
+        # CuPy uses the GPU BLAS implementation instead of NumPy's host path.
+        xp.matmul(U16, V16T, out=M16)
         M = M16.reshape(4, 4, OC, N, tile_h, tile_w).transpose(3, 2, 4, 5, 0, 1)
 
         # --- 7. 输出逆变换 Y = A^T M A（显式向量化公式） ---
@@ -1845,6 +1927,20 @@ class Pooling(Function):
 
     def forward(self, *xs):
         x = xs[0]
+        if (has_cupy and isinstance(x, cp.ndarray)
+                and _cuda_backend_enabled()):
+            try:
+                from .cuda import maxpool_forward
+                y, indexes = maxpool_forward(x, self.kernel_size, self.stride, self.pad)
+                self.indexes = indexes
+                self._cuda_fast_path = True
+                return y
+            except Exception:
+                self._cuda_fast_path = False
+                from .cuda import get_backend
+                if get_backend() == 'rawmodule':
+                    raise
+        self._cuda_fast_path = False
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
 
@@ -1872,6 +1968,10 @@ class Pooling2DGrad(Function):
 
     def forward(self, *xs):
         gy = xs[0]
+        if getattr(self.mpool2d, '_cuda_fast_path', False):
+            from .cuda import maxpool_backward
+            return maxpool_backward(gy, self.indexes, self.input_shape,
+                                    self.kernel_size, self.stride, self.pad)
         
 
         N, C, OH, OW = gy.shape
@@ -1962,12 +2062,20 @@ class GlobalAveragePooling(Function):
     def forward(self, *xs):
         x = xs[0]
         self.input_shape = x.shape
-        y = x.mean(axis=(2, 3), keepdims=True)
+        if has_cupy and isinstance(x, cp.ndarray) and _cuda_backend_enabled() and x.dtype == cp.float32:
+            from .cuda import global_average_pool_forward
+            y = global_average_pool_forward(x)
+        else:
+            y = x.mean(axis=(2, 3), keepdims=True)
         return y
     
     def backward(self, gy):
-        # 全局平均池化的反向传播是将梯度广播回原始输入形状
-        gx = broadcast_to(gy, self.input_shape)
+        # 平均池化的梯度还要除以 H*W；CUDA 路径用同一公式逐元素写回。
+        if has_cupy and isinstance(gy, cp.ndarray) and _cuda_backend_enabled() and gy.dtype == cp.float32:
+            from .cuda import global_average_pool_backward
+            gx = global_average_pool_backward(gy, self.input_shape)
+        else:
+            gx = broadcast_to(gy, self.input_shape) / (self.input_shape[2] * self.input_shape[3])
         return gx
 
 def global_average_pooling(x):
@@ -2141,14 +2249,18 @@ class BatchNorm2d(Function):
                 v = to_xp(var.reshape(C), xp)
                 running_mean_data = to_xp(running_mean_data, xp)
                 running_var_data = to_xp(self.running_var.data, xp)
-                momentum = xp.asarray(self.momentum)
-                one_minus_momentum = xp.asarray(1) - momentum
+                # Keep running statistics in the parameter dtype.  CuPy can
+                # promote an array by a Python scalar, which would otherwise
+                # make all downstream gradients float64.
+                stats_dtype = running_mean_data.dtype
+                momentum = xp.asarray(self.momentum, dtype=stats_dtype)
+                one_minus_momentum = xp.asarray(1, dtype=stats_dtype) - momentum
             else:
                 m = mean.reshape(C)
                 v = var.reshape(C)
                 running_var_data = self.running_var.data
-                momentum = self.momentum
-                one_minus_momentum = 1 - self.momentum
+                momentum = np.asarray(self.momentum, dtype=running_mean_data.dtype)
+                one_minus_momentum = np.asarray(1, dtype=running_mean_data.dtype) - momentum
 
             new_mean = momentum * running_mean_data + one_minus_momentum * m
             new_var = momentum * running_var_data + one_minus_momentum * v
@@ -2185,9 +2297,14 @@ class BatchNorm2d(Function):
             gamma_data = gamma
             beta_data = beta
 
-        x_hat = (x - mean) / xp.sqrt(var + self.eps)
-        # 缩放和偏移
-        out = gamma_data.reshape(1, C, 1, 1) * x_hat + beta_data.reshape(1, C, 1, 1)
+        if xp is not np and _cuda_backend_enabled() and x.dtype == cp.float32:
+            from .cuda import batchnorm_forward
+            out = batchnorm_forward(x, mean.reshape(C), var.reshape(C), gamma_data, beta_data, self.eps)
+            x_hat = (x - mean) / xp.sqrt(var + self.eps)
+        else:
+            x_hat = (x - mean) / xp.sqrt(var + self.eps)
+            # 缩放和偏移
+            out = gamma_data.reshape(1, C, 1, 1) * x_hat + beta_data.reshape(1, C, 1, 1)
         self.x_hat = x_hat
         self.gamma = gamma_data
         return out
@@ -2203,8 +2320,17 @@ class BatchNorm2d(Function):
 
         # 计算中间变量
         xp = get_array_module(x)
-        std_inv = 1.0 / xp.sqrt(var + eps)
+        # Explicitly cast the constants to the activation dtype.  This is
+        # required for CuPy float32 training because scalar promotion here
+        # would otherwise create float64 gradients for the whole graph.
+        dtype = x.dtype
+        eps_value = xp.asarray(eps, dtype=dtype)
+        std_inv = xp.asarray(1, dtype=dtype) / xp.sqrt(var + eps_value)
         x_hat = self.x_hat
+        if xp is not np and _cuda_backend_enabled() and x.dtype == cp.float32 and gys.dtype == cp.float32:
+            from .cuda import batchnorm_backward
+            gx, ggamma, gbeta = batchnorm_backward(x, gys, mean.reshape(C), var.reshape(C), self.gamma, eps)
+            return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)
         # 对 gamma 和 beta 的梯度
         gbeta = gys.sum(axis=(0, 2, 3), keepdims=False)  # (C,)
         ggamma = (gys * x_hat).sum(axis=(0, 2, 3), keepdims=False)  # (C,)
@@ -2212,12 +2338,15 @@ class BatchNorm2d(Function):
         # 对 x_hat 的梯度
         gx_hat = gys * gamma
         # 对 var 的梯度
-        gvar = (gx_hat * (x - mean) * (-0.5) * std_inv**3).sum(axis=(0, 2, 3), keepdims=True)
+        half = xp.asarray(-0.5, dtype=dtype)
+        two = xp.asarray(2, dtype=dtype)
+        sample_count = xp.asarray(M, dtype=dtype)
+        gvar = (gx_hat * (x - mean) * half * std_inv**3).sum(axis=(0, 2, 3), keepdims=True)
         # 对 mean 的梯度
         gmean = (gx_hat * (-std_inv)).sum(axis=(0, 2, 3), keepdims=True) + \
-                gvar * (-2.0 / M) * (x - mean).sum(axis=(0, 2, 3), keepdims=True)
+                gvar * (-two / sample_count) * (x - mean).sum(axis=(0, 2, 3), keepdims=True)
         # 对输入 x 的梯度
-        gx = gx_hat * std_inv + gvar * (2.0 / M) * (x - mean) + gmean / M
+        gx = gx_hat * std_inv + gvar * (two / sample_count) * (x - mean) + gmean / sample_count
 
         # 返回 gx, ggamma, gbeta (顺序与 forward 输入一致)
         return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)

@@ -1,0 +1,1 @@
+GPU Training (3x32 samples): 0.35s

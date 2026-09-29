@@ -1,0 +1,25 @@
+# CUDA C 后端架构与回退关系
+
+这张图说明当前 EnNeuro 保留 CuPy 作为基线和回退，同时通过统一的 `kernels.cu` 支撑 RawModule 验证路线与后续 DLL 路线。
+
+```mermaid
+flowchart LR
+    input["EnNeuro 训练代码<br/>Tensor + 自动求导"]:::input --> dispatch{"dispatch<br/>后端选择"}:::decision
+    dispatch --> cupy["CuPy 基线<br/>数组管理 + 参考实现"]:::baseline
+    dispatch --> raw["RawModule / NVRTC<br/>当前已完成验证"]:::custom
+    dispatch --> ext["ctypes + CUDA DLL<br/>已构建，待接入"]:::planned
+    raw --> source["统一设备源码<br/>sources/kernels.cu"]:::source
+    ext --> source
+    source --> kernels["16 个 CUDA C kernel<br/>逐元素 / im2col / pool / conv dX"]:::custom
+    kernels --> gpu["GPU 执行<br/>线程索引 + 边界判断"]:::gpu
+    cupy --> blas["CuPy / cuBLAS<br/>GEMM、归约与回退"]:::baseline
+    raw -."auto 模式失败或不支持".-> cupy
+    ext -."未覆盖形状回退".-> cupy
+    classDef input fill:#DCFCE7,stroke:#15803D,color:#111827,stroke-width:2px;
+    classDef decision fill:#FEF3C7,stroke:#B45309,color:#111827,stroke-width:2px;
+    classDef baseline fill:#E5E7EB,stroke:#4B5563,color:#111827,stroke-width:2px;
+    classDef custom fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px;
+    classDef planned fill:#FCE7F3,stroke:#BE185D,color:#111827,stroke-width:2px;
+    classDef source fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px;
+    classDef gpu fill:#FFEDD5,stroke:#C2410C,color:#111827,stroke-width:2px;
+```

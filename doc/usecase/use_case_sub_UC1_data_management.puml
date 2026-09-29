@@ -1,0 +1,50 @@
+@startuml
+' ============================================================
+' 子用例图：数据管理 (UC1)
+' 所属模块：基础功能模块
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "数据管理" {
+    usecase "加载数据集" as UC1_1
+    usecase "数据预处理" as UC1_2
+    usecase "创建数据加载器" as UC1_3
+    usecase "多进程异步数据加载" as UC1_4
+    usecase "链式图像数据增强处理" as UC1_5
+    usecase "数据集分片与进程资源回收" as UC1_6
+}
+
+User --> UC1_1
+User --> UC1_2
+User --> UC1_3
+User --> UC1_4
+User --> UC1_5
+User --> UC1_6
+
+' 数据预处理 → 数据增强（链式处理）
+UC1_2 ..> UC1_5 : extends
+
+' 数据加载器依赖多进程异步加载
+UC1_3 ..> UC1_4 : depends on
+
+' 数据集分片在数据加载后执行
+UC1_6 ..> UC1_3 : depends on
+
+@enduml

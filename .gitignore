@@ -19,4 +19,6 @@ tests/data.zip
 *.jpg
 *.jpeg
 CLAUDE.md
+saved_models/
+*.pkl
 .vscode/
