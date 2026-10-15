@@ -11,7 +11,12 @@ from .compiler import available, module
 
 # cupy：完全使用 CuPy；rawmodule：严格要求自研 kernel；auto：kernel 失败时
 # 回退到 CuPy，便于在 NVRTC 尚未配置好时仍能验证模型数值。
-_BACKEND = os.environ.get("ENNEURO_CUDA_BACKEND", "cupy").lower()
+_BACKEND_ALIASES = {"cuda_c": "rawmodule"}
+_VALID_BACKENDS = {"cupy", "rawmodule", "auto", "extension"}
+_BACKEND = _BACKEND_ALIASES.get(
+    os.environ.get("ENNEURO_CUDA_BACKEND", "cupy").lower(),
+    os.environ.get("ENNEURO_CUDA_BACKEND", "cupy").lower(),
+)
 _LAST = {"actual_backend": None, "fallback_reason": None, "last_error": None}
 _LAUNCH_COUNTS = {}
 _FUNCTIONS = {}
@@ -44,9 +49,11 @@ else:
 def set_backend(mode):
     """切换当前进程的算子后端，不改变 Tensor 的公共 API。"""
     global _BACKEND
-    mode = str(mode).lower()
-    if mode not in {"cupy", "rawmodule", "auto", "extension"}:
-        raise ValueError("backend must be cupy, rawmodule, extension, or auto")
+    mode = _BACKEND_ALIASES.get(str(mode).lower(), str(mode).lower())
+    if mode not in _VALID_BACKENDS:
+        raise ValueError(
+            "backend must be cupy, rawmodule/cuda_c, extension, or auto"
+        )
     _BACKEND = mode
 
 
@@ -70,14 +77,21 @@ def launch_counts(reset=False):
 
 
 def is_available(backend="rawmodule"):
+    backend = _BACKEND_ALIASES.get(str(backend).lower(), str(backend).lower())
     if cp is None or not available():
+        return False
+    if backend == "extension":
+        # The nvcc/C ABI sources exist, but the Python ctypes loader has not
+        # been connected yet.  Do not report a CuPy installation as proof that
+        # the DLL backend is usable.
         return False
     if backend in ("rawmodule", "auto"):
         try:
             module(_SRC).get_function("relu_f32")
         except Exception:
             return False
-    return True
+        return True
+    return backend == "cupy"
 
 
 def _raw_enabled():

@@ -2,6 +2,7 @@ import weakref
 import time
 import os
 import math
+from contextlib import contextmanager
 from .core import Tensor 
 from .core import as_Tensor, as_array
 from .core import Function
@@ -20,6 +21,92 @@ def _cuda_backend_enabled():
     # 与 dispatch.set_backend 保持同一状态来源；不能只读取进程启动时的环境变量。
     from .cuda import get_backend
     return get_backend() in ('rawmodule', 'auto')
+
+
+_OPERATOR_BACKENDS = {'auto', 'numpy', 'cupy', 'cuda_c', 'rawmodule'}
+
+
+def _normalize_operator_backend(backend):
+    """Normalize the public M1-11 backend name without changing old callers."""
+    if backend is None:
+        return None
+    normalized = str(backend).lower()
+    if normalized not in _OPERATOR_BACKENDS:
+        raise ValueError(
+            "backend must be auto, numpy, cupy, cuda_c, or rawmodule"
+        )
+    return 'cuda_c' if normalized == 'rawmodule' else normalized
+
+
+@contextmanager
+def _temporary_cuda_backend(mode):
+    """Select one CUDA backend for a single operator call and restore it."""
+    from .cuda import get_backend, set_backend
+
+    previous = get_backend()
+    set_backend(mode)
+    try:
+        yield
+    finally:
+        set_backend(previous)
+
+
+def _launch_count_delta(before, after):
+    return {
+        name: count - before.get(name, 0)
+        for name, count in after.items()
+        if count - before.get(name, 0) > 0
+    }
+
+
+def get_backend_capabilities():
+    """Return availability information used by M1-09 benchmark/reporting."""
+    cupy_available = False
+    cupy_reason = ''
+    if not has_cupy:
+        cupy_reason = 'CuPy is not installed'
+    else:
+        try:
+            cupy_available = int(cp.cuda.runtime.getDeviceCount()) > 0
+            if not cupy_available:
+                cupy_reason = 'no CUDA device is available'
+        except Exception as exc:
+            cupy_reason = f'{type(exc).__name__}: {exc}'
+
+    cuda_c_available = False
+    cuda_c_reason = cupy_reason
+    if cupy_available:
+        try:
+            from .cuda import is_available
+            cuda_c_available = bool(is_available('cuda_c'))
+            if not cuda_c_available:
+                cuda_c_reason = 'CUDA C RawModule/NVRTC is unavailable'
+        except Exception as exc:
+            cuda_c_reason = f'{type(exc).__name__}: {exc}'
+
+    return {
+        'numpy': {
+            'implemented': True,
+            'available': True,
+            'reason': '',
+        },
+        'cupy': {
+            'implemented': True,
+            'available': cupy_available,
+            'reason': cupy_reason,
+        },
+        'cuda_c': {
+            'implemented': True,
+            'available': cuda_c_available,
+            'reason': cuda_c_reason,
+            'route': 'cupy.RawModule/NVRTC',
+        },
+        'extension': {
+            'implemented': False,
+            'available': False,
+            'reason': 'ctypes/DLL loader is not implemented',
+        },
+    }
 
 
 _CPU_TILED_ENABLED = os.environ.get("ENE_CONV_CPU_TILED", "1") != "0"
@@ -881,12 +968,18 @@ class Conv2d(Function):
     _path_cache = {}
     _path_cache_max = 256
 
-    def __init__(self, stride=(1,1), pad=(0,0), dilation=1, visualize=False):
+    def __init__(self, stride=(1,1), pad=(0,0), dilation=1,
+                 visualize=False, backend=None):
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
         self.dilation = pair(dilation)
         self.visualize = visualize
+        self.backend = _normalize_operator_backend(backend)
+        self._backend_requested = self.backend or 'global'
+        self._backend_effective = None
+        self._backend_fallback_reason = None
+        self._backend_launch_counts = {}
 
     def _gemm_output_shape(self, x, W):
         KH, KW = W.shape[2:]
@@ -1035,21 +1128,89 @@ class Conv2d(Function):
         #print(f"x.dtype = {x.dtype}")
         W = xs[1]
         b = xs[2]
-        if (has_cupy and isinstance(x, cp.ndarray) and isinstance(W.data if isinstance(W, Tensor) else W, cp.ndarray)
-                and _cuda_backend_enabled()
-                and getattr(self, 'dilation', (1, 1)) == (1, 1)):
+
+        weight_data = W.data if isinstance(W, Tensor) else W
+        requested = self.backend
+        if requested == 'numpy' and (
+                not isinstance(x, np.ndarray)
+                or not isinstance(weight_data, np.ndarray)):
+            raise ValueError("backend='numpy' requires NumPy inputs")
+        if requested in ('cupy', 'cuda_c') and (
+                not has_cupy or not isinstance(x, cp.ndarray)
+                or not isinstance(weight_data, cp.ndarray)):
+            raise ValueError(f"backend='{requested}' requires CuPy inputs")
+
+        explicit_cuda_c = requested == 'cuda_c'
+        requested_auto = requested == 'auto'
+        inherited_cuda_c = requested is None and _cuda_backend_enabled()
+        wants_cuda_c = explicit_cuda_c or requested_auto or inherited_cuda_c
+        use_cuda_c = (
+            has_cupy
+            and isinstance(x, cp.ndarray)
+            and isinstance(weight_data, cp.ndarray)
+            and wants_cuda_c
+            and getattr(self, 'dilation', (1, 1)) == (1, 1)
+        )
+        if use_cuda_c:
             try:
-                from .cuda import conv2d_forward
+                from .cuda import (
+                    conv2d_forward,
+                    diagnostics,
+                    get_backend,
+                    launch_counts,
+                )
+
+                before = launch_counts()
+                diagnostics(reset=True)
+                selected_mode = (
+                    'cuda_c' if explicit_cuda_c
+                    else 'auto' if requested_auto
+                    else get_backend()
+                )
                 self._cuda_fast_path = True
-                return conv2d_forward(x, W.data if isinstance(W, Tensor) else W,
-                                       b.data if isinstance(b, Tensor) else b,
-                                       self.stride, self.pad, self.dilation)
-            except Exception:
+                self._cuda_backend_mode = 'cuda_c'
+                with _temporary_cuda_backend(selected_mode):
+                    result = conv2d_forward(
+                        x,
+                        weight_data,
+                        b.data if isinstance(b, Tensor) else b,
+                        self.stride,
+                        self.pad,
+                        self.dilation,
+                    )
+                self._backend_launch_counts = _launch_count_delta(
+                    before, launch_counts()
+                )
+                diag = diagnostics()
+                actual = diag.get('actual_backend')
+                if self._backend_launch_counts:
+                    self._backend_effective = (
+                        'cuda_c' if actual != 'cupy' else 'cuda_c_mixed'
+                    )
+                else:
+                    self._backend_effective = (
+                        'cupy_fallback' if actual in (None, 'cupy') else actual
+                    )
+                self._backend_fallback_reason = diag.get('fallback_reason')
+                return result
+            except Exception as exc:
                 self._cuda_fast_path = False
+                self._backend_fallback_reason = f'{type(exc).__name__}: {exc}'
                 from .cuda import get_backend
-                if get_backend() == 'rawmodule':
+                if explicit_cuda_c or get_backend() == 'rawmodule':
                     raise
         self._cuda_fast_path = False
+        if wants_cuda_c and (
+                has_cupy and isinstance(x, cp.ndarray)
+                and getattr(self, 'dilation', (1, 1)) != (1, 1)):
+            self._backend_effective = 'cupy_fallback'
+            self._backend_fallback_reason = (
+                'CUDA C Conv2D currently supports dilation=(1, 1) only'
+            )
+        else:
+            self._backend_effective = (
+                'cupy' if has_cupy and isinstance(x, cp.ndarray) else 'numpy'
+            )
         self._fw_workspace = None
         self._fw_workspace_version = None
         self._used_fft = False
@@ -1077,9 +1238,17 @@ class Conv2d(Function):
         x, W, b = self.inputs
         if getattr(self, '_cuda_fast_path', False):
             from .cuda import conv2d_backward
-            gx, gW, gb = conv2d_backward(gys.data, x.data, W.data,
-                                         b.data if isinstance(b, Tensor) else b,
-                                         self.stride, self.pad, self.dilation)
+            with _temporary_cuda_backend(
+                    getattr(self, '_cuda_backend_mode', 'cuda_c')):
+                gx, gW, gb = conv2d_backward(
+                    gys.data,
+                    x.data,
+                    W.data,
+                    b.data if isinstance(b, Tensor) else b,
+                    self.stride,
+                    self.pad,
+                    self.dilation,
+                )
             return as_Tensor(gx), as_Tensor(gW), as_Tensor(gb) if gb is not None else None
         if getattr(self, '_used_winograd', False):
             self._used_winograd_backward = True
@@ -1624,8 +1793,11 @@ class Conv2d(Function):
 
         return y_res.astype(dtype, copy=False)
 
-def conv2d(x, W, b=None, stride=(1,1), pad=(0,0), dilation=1, visualize=False):
-    return Conv2d(stride, pad, dilation, visualize)(x, W, b)
+def conv2d(x, W, b=None, stride=(1,1), pad=(0,0), dilation=1,
+           visualize=False, backend=None):
+    return Conv2d(
+        stride, pad, dilation, visualize, backend=backend
+    )(x, W, b)
 
 
 def conv2d_backward_input_array(gy, W, stride=(1, 1), pad=(0, 0), dilation=(1, 1), out_h=None, out_w=None):
@@ -1918,29 +2090,84 @@ class Conv2DGradW(Function):
     
 #改变维度，池化操作找到KH * KW最大值的位置
 class Pooling(Function):
-    def __init__(self, kernel_size, stride=1, pad=0, visualize=False):
+    def __init__(self, kernel_size, stride=1, pad=0,
+                 visualize=False, backend=None):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
         self.visualize = visualize
+        self.backend = _normalize_operator_backend(backend)
+        self._backend_requested = self.backend or 'global'
+        self._backend_effective = None
+        self._backend_fallback_reason = None
+        self._backend_launch_counts = {}
 
     def forward(self, *xs):
         x = xs[0]
-        if (has_cupy and isinstance(x, cp.ndarray)
-                and _cuda_backend_enabled()):
+        requested = self.backend
+        if requested == 'numpy' and not isinstance(x, np.ndarray):
+            raise ValueError("backend='numpy' requires a NumPy input")
+        if requested in ('cupy', 'cuda_c') and (
+                not has_cupy or not isinstance(x, cp.ndarray)):
+            raise ValueError(f"backend='{requested}' requires a CuPy input")
+
+        explicit_cuda_c = requested == 'cuda_c'
+        requested_auto = requested == 'auto'
+        inherited_cuda_c = requested is None and _cuda_backend_enabled()
+        wants_cuda_c = explicit_cuda_c or requested_auto or inherited_cuda_c
+        use_cuda_c = (
+            has_cupy and isinstance(x, cp.ndarray)
+            and wants_cuda_c
+        )
+        if use_cuda_c:
             try:
-                from .cuda import maxpool_forward
-                y, indexes = maxpool_forward(x, self.kernel_size, self.stride, self.pad)
+                from .cuda import (
+                    diagnostics,
+                    get_backend,
+                    launch_counts,
+                    maxpool_forward,
+                )
+
+                before = launch_counts()
+                diagnostics(reset=True)
+                selected_mode = (
+                    'cuda_c' if explicit_cuda_c
+                    else 'auto' if requested_auto
+                    else get_backend()
+                )
+                with _temporary_cuda_backend(selected_mode):
+                    y, indexes = maxpool_forward(
+                        x, self.kernel_size, self.stride, self.pad
+                    )
                 self.indexes = indexes
                 self._cuda_fast_path = True
+                self._cuda_backend_mode = 'cuda_c'
+                self._backend_launch_counts = _launch_count_delta(
+                    before, launch_counts()
+                )
+                diag = diagnostics()
+                actual = diag.get('actual_backend')
+                if self._backend_launch_counts:
+                    self._backend_effective = (
+                        'cuda_c' if actual != 'cupy' else 'cuda_c_mixed'
+                    )
+                else:
+                    self._backend_effective = (
+                        'cupy_fallback' if actual in (None, 'cupy') else actual
+                    )
+                self._backend_fallback_reason = diag.get('fallback_reason')
                 return y
-            except Exception:
+            except Exception as exc:
                 self._cuda_fast_path = False
+                self._backend_fallback_reason = f'{type(exc).__name__}: {exc}'
                 from .cuda import get_backend
-                if get_backend() == 'rawmodule':
+                if explicit_cuda_c or get_backend() == 'rawmodule':
                     raise
         self._cuda_fast_path = False
+        self._backend_effective = (
+            'cupy' if has_cupy and isinstance(x, cp.ndarray) else 'numpy'
+        )
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
 
@@ -1970,8 +2197,12 @@ class Pooling2DGrad(Function):
         gy = xs[0]
         if getattr(self.mpool2d, '_cuda_fast_path', False):
             from .cuda import maxpool_backward
-            return maxpool_backward(gy, self.indexes, self.input_shape,
-                                    self.kernel_size, self.stride, self.pad)
+            with _temporary_cuda_backend(
+                    getattr(self.mpool2d, '_cuda_backend_mode', 'cuda_c')):
+                return maxpool_backward(
+                    gy, self.indexes, self.input_shape,
+                    self.kernel_size, self.stride, self.pad,
+                )
         
 
         N, C, OH, OW = gy.shape
@@ -2024,8 +2255,11 @@ class Pooling2DWithIndexes(Function):
         return col.reshape(N, C, OH, OW)
 
 
-def pooling(x, kernel_size, stride=1, pad=0, visualize=False):
-    return Pooling(kernel_size, stride, pad, visualize)(x)
+def pooling(x, kernel_size, stride=1, pad=0,
+            visualize=False, backend=None):
+    return Pooling(
+        kernel_size, stride, pad, visualize, backend=backend
+    )(x)
 
 
 class AveragePooling(Function):

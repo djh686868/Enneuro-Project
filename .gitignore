@@ -18,6 +18,8 @@ tests/data.zip
 *.png
 *.jpg
 *.jpeg
+!tests/artifacts/m1_09_environment.json
+!tests/artifacts/m1_09_speedup.png
 CLAUDE.md
 saved_models/
 *.pkl
