@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import confusion_matrix
 import seaborn as sns
 from scipy.ndimage import zoom
 from ..train.meters import AverageMeter, TimeMeter
+from ..train.metrics import confusion_matrix as _compute_cm
 
 class Visualizer:
     """用于可视化训练过程中的准确率曲线、损失曲线、时间消耗曲线和混淆矩阵"""
@@ -68,22 +68,23 @@ class Visualizer:
         self.val_loss_meter.reset()
         self.val_acc_meter.reset()
     
+    @staticmethod
+    def _to_numpy_flat(arr):
+        """将 Tensor / cupy / list 统一转为一维 numpy int64 数组。"""
+        if type(arr).__name__ == 'Tensor' and hasattr(arr, 'data'):
+            arr = arr.data
+        try:
+            import cupy as cp
+            if isinstance(arr, cp.ndarray):
+                arr = cp.asnumpy(arr)
+        except ImportError:
+            pass
+        return np.asarray(arr, dtype=np.int64).ravel()
+
     def update_predictions(self, y_true, y_pred):
         """更新预测结果，用于绘制混淆矩阵"""
-        # 确保输入是 numpy 数组
-        # 如果是cupy数组，使用.get()方法转换
-        if hasattr(y_true, 'get'):
-            y_true = y_true.get()
-        elif not isinstance(y_true, np.ndarray):
-            y_true = y_true.data if hasattr(y_true, 'data') else np.array(y_true)
-
-        if hasattr(y_pred, 'get'):
-            y_pred = y_pred.get()
-        elif not isinstance(y_pred, np.ndarray):
-            y_pred = y_pred.data if hasattr(y_pred, 'data') else np.array(y_pred)
-
-        self.y_true.extend(y_true.flatten())
-        self.y_pred.extend(y_pred.flatten())
+        self.y_true.extend(self._to_numpy_flat(y_true).tolist())
+        self.y_pred.extend(self._to_numpy_flat(y_pred).tolist())
     
     def plot_all(self, save_path=None, show=True):
         """一次性绘制所有曲线和混淆矩阵"""
@@ -118,24 +119,9 @@ class Visualizer:
         
         # 4. 绘制混淆矩阵
         if len(self.y_true) > 0 and len(self.y_pred) > 0:
-            # 将列表中的cupy数组转换为numpy数组
-            # 如果列表中的元素是cupy数组，需要逐个转换
-            y_true_list = []
-            for item in self.y_true:
-                if hasattr(item, 'get'):
-                    y_true_list.append(item.get())
-                else:
-                    y_true_list.append(item)
-            y_pred_list = []
-            for item in self.y_pred:
-                if hasattr(item, 'get'):
-                    y_pred_list.append(item.get())
-                else:
-                    y_pred_list.append(item)
-
-            y_true_np = np.array(y_true_list)
-            y_pred_np = np.array(y_pred_list)
-            cm = confusion_matrix(y_true_np, y_pred_np)
+            y_true_np = np.array(self.y_true, dtype=np.int64)
+            y_pred_np = np.array(self.y_pred, dtype=np.int64)
+            cm = _compute_cm(y_pred_np, y_true_np, num_classes=self.num_classes)
             sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[1, 1])
             axes[1, 1].set_title('Confusion Matrix')
             axes[1, 1].set_xlabel('Predicted Label')

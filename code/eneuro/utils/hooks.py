@@ -213,10 +213,24 @@ def add_hooks_to_module():
         # 实例属性优先于类方法，所以无论子类如何覆盖 backward，
         # 这里的包装都能被正确拦截，而 type(self).backward 则
         # 精确调用该子类自身的真实 backward 实现。
+        #
+        # ⚠ 内存泄漏修复：
+        #   原来闭包直接捕获 self（强引用），同时 self.backward 又持有该闭包，
+        #   形成 "Function → closure → Function" 的引用环。
+        #   Python 引用计数无法自动回收环形引用，导致整条计算图（Function +
+        #   其 inputs Tensor 链）在 backward 结束后仍驻留内存。
+        #   修复方案：闭包只持有 weakref.ref(self)，需要时再解引用。
+        #   弱引用不增加引用计数，引用环因此被打断，计算图可被正常回收。
         real_backward = type(self).backward
+        ref = weakref.ref(self)  # 弱引用，避免循环引用
 
         def instance_backward_with_hooks(gy):
-            grad_inputs = real_backward(self, gy)
+            fn = ref()  # ref
+            if fn is None:
+                # 对象已被 GC（正常 backward 调用栈中不应发生）
+                raise RuntimeError("Function 实例已被 GC，无法执行 backward")
+
+            grad_inputs = real_backward(fn, gy)
 
             if not isinstance(grad_inputs, tuple):
                 grad_inputs_tuple = (grad_inputs,)
@@ -225,10 +239,10 @@ def add_hooks_to_module():
 
             grad_outputs = (gy,) if not isinstance(gy, tuple) else gy
 
-            if self._hook_manager._backward_hooks:
-                self._hook_manager.trigger_backward_hooks(grad_inputs_tuple, grad_outputs)
+            if fn._hook_manager._backward_hooks:
+                fn._hook_manager.trigger_backward_hooks(grad_inputs_tuple, grad_outputs)
 
-            layer = hook_registry.get_layer_for_function(self)
+            layer = hook_registry.get_layer_for_function(fn)
             if layer is not None and hasattr(layer, '_hook_manager') and layer._hook_manager._backward_hooks:
                 layer._hook_manager.trigger_backward_hooks(grad_inputs_tuple, grad_outputs)
 

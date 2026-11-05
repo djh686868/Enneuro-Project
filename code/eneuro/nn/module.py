@@ -499,6 +499,8 @@ class Module(Layer,StateDict):
 
     # 辅助函数：仅处理numpy/cupy数组→纯列表（适配Tensor）
     def _to_pure_list(self, tensor_like):
+        if tensor_like is None:
+            return None
         if isinstance(tensor_like, np.ndarray):
             return tensor_like.tolist()
         elif has_cupy and isinstance(tensor_like, cp.ndarray):

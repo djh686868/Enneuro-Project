@@ -3,6 +3,7 @@ from typing import Any
 from ..utils import StateDict
 from ..nn.module import Module
 from ..nn.optim import Optimizer
+from ..ao import GraphExecutor
 import json
 
 class Serializer:
@@ -15,6 +16,8 @@ class Serializer:
             data.update(model_state=d)
         elif isinstance(state, Optimizer):
             data.update(optim_state=d)
+        elif isinstance(state, GraphExecutor):
+            data.update(graph_executor_state=d)
         else:
             data = d
             print("Warning: Unstandard StateDict Saved!")
@@ -33,6 +36,8 @@ class Serializer:
             d = data.get('model_state',{})
         elif isinstance(state, Optimizer):
             d = data.get('optim_state',{})
+        elif isinstance(state, GraphExecutor):
+            d = data.get('graph_executor_state',{})
         else:
             d = data
             print("Warning: Unstandard StateDict Loaded!")

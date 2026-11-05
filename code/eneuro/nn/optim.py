@@ -28,8 +28,8 @@ L2_LAMBDA_KEY = 'l2_lambda'
 L1_LAMBDA_KEY = 'l1_lambda'
 
 class Optimizer(StateDict):
-    params: list[Parameter]
-    _state: dict[str, Any] = {}
+    #params: list[Parameter]
+    #_state: dict[str, Any] = {}
 
     def __init__(self, params: list[Parameter], lr: float = 0.01,
                  l2_lambda: float = 0.0, l1_lambda: float = 0.0):
@@ -37,6 +37,7 @@ class Optimizer(StateDict):
         params = [param for param in params if param.requires_grad == True]
         
         self.params = list(params)
+        self._state: dict[str, Any] = {}
         self._state.update(
             lr=lr, 
             l2_lambda=l2_lambda, 

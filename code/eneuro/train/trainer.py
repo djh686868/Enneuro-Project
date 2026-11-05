@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 try:
     import cupy as cp
     has_cupy = True
@@ -17,7 +17,7 @@ def progress_bar(current, total, epoch, loss, acc, width=30): # 进度条
     """current: 当前已处理样本数；total: 总样本数"""
     percent = current / total
     filled = int(width * percent)
-    bar = '█' * filled + '░' * (width - filled)
+    bar = '#' * filled + '.' * (width - filled)
     sys.stdout.write(
         f'\rEpoch {epoch+1:3d} |{bar}| {percent*100:5.1f}% '
         f' | loss={loss:.4f} | acc={acc:.3f}'
@@ -225,28 +225,44 @@ class Trainer:
         loss_sum, acc_sum, sample_num = 0., 0, 0
         y_true_list = []
         y_pred_list = []
-        
+        last_y_hat_shape, last_yb_ndim = None, None
+
         for batch_idx, (Xb, yb) in enumerate(data_loader):
             Xb = as_Tensor(Xb)
             yb = as_Tensor(yb)
             Xb = Xb.to(device)
             yb = yb.to(device)
-            y_hat = self.model(Xb)
 
-            # 兼容单标签分类与多标签分类
-            if yb.ndim > 1:
-                y_true_cls = yb.argmax(axis=1)
-                if _is_multilabel(y_hat, yb):
-                    # 多标签任务（如 SigmoidWithLoss）
-                    y_target = yb
+            if training:
+                y_hat = self.model(Xb)
+
+                # 兼容单标签分类与多标签分类
+                if yb.ndim > 1:
+                    y_true_cls = yb.argmax(axis=1)
+                    if _is_multilabel(y_hat, yb):
+                        y_target = yb
+                    else:
+                        y_target = y_true_cls
                 else:
-                    # 单标签分类 one-hot -> class index
-                    y_target = y_true_cls
-            else:
-                y_true_cls = yb
-                y_target = yb
+                    y_true_cls = yb
+                    y_target = yb
 
-            loss = self.loss_fn(y_hat, y_target)
+                loss = self.loss_fn(y_hat, y_target)
+            else:
+                with Config.using_config('enable_backprop', False), Config.using_config('train', False):
+                    y_hat = self.model(Xb)
+
+                    if yb.ndim > 1:
+                        y_true_cls = yb.argmax(axis=1)
+                        if _is_multilabel(y_hat, yb):
+                            y_target = yb
+                        else:
+                            y_target = y_true_cls
+                    else:
+                        y_true_cls = yb
+                        y_target = yb
+
+                    loss = self.loss_fn(y_hat, y_target)
 
             batch_acc_info = _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=self.loss_fn)
             if batch_acc_info[0] is None:
@@ -263,11 +279,11 @@ class Trainer:
                     changed update to step
                 '''
                 self.optimizer.step()
-            
+
             # 收集预测结果和真实标签，用于绘制混淆矩阵
             y_true_list.append(y_true)
             y_pred_list.append(y_pred)
-            
+
             loss_sum += loss.data * len(Xb)
             if not np.isnan(batch_acc):
                 acc_sum += batch_acc * len(Xb)
@@ -280,19 +296,31 @@ class Trainer:
                         self.visualizer.update_train(loss.data, batch_acc, batch_size=len(Xb))
                     else:
                         self.visualizer.update_val(loss.data, batch_acc, batch_size=len(Xb))
-            
+
             # self.loss_meter.update(loss.data)
             # self.acc_meter.update(acc_sum / sample_num)
-            
+
             if verbose:
                 display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
                 progress_bar(batch_idx * batch_size + len(Xb), len(data_loader.dataset), self._epoch, loss.data, display_acc)
+
+            last_y_hat_shape, last_yb_ndim = y_hat.shape, yb.ndim
+            # 显式释放计算图根节点，防止旧图与新图同时驻留显存导致峰值翻倍
+            del y_hat, loss, y_target, y_true_cls
+
         if verbose:
             sys.stdout.write('\n')
-        
+
         # 计算epoch级别的指标
         epoch_loss = loss_sum / sample_num
-        epoch_acc = acc_sum / sample_num if acc_sum != 0 else (np.nan if _is_regression(y_hat, yb, loss_fn=self.loss_fn) else 0.0)
+        if sample_num > 0 and last_y_hat_shape is not None:
+            loss_name = getattr(self.loss_fn, "__name__", "")
+            is_reg = loss_name == "meanSquaredError" or (
+                len(last_y_hat_shape) > 1 and last_y_hat_shape[-1] == 1 and last_yb_ndim == 1
+            )
+        else:
+            is_reg = False
+        epoch_acc = acc_sum / sample_num if acc_sum != 0 else (np.nan if is_reg else 0.0)
         
         # 更新visualizer的预测结果
         if self.visualizer is not None and not training:
@@ -373,132 +401,3 @@ class Evaluator:
         
         return loss, acc
 
-        
-
-
-'''
-this is the original version of split_train_val
-
-class Trainer:
-    def __init__(self, model, loss_fn, optimizer):
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self._epoch = 0
-        # self.loss_meter = AverageMeter('Loss')
-        # self.acc_meter = AverageMeter('Acc')
-        # self.time_meter = TimeMeter()
-
-    def fit(self, data_loader, epochs=10, batch_size=32, 
-                verbose=True, tr_val_split=0.8, device='cpu'):
-        # self.model.to(device)
-        X, y = data_loader.get_data()
-        split_idx = int(len(X) * tr_val_split)
-        X_train, X_val = X[:split_idx], X[split_idx:]
-        y_train, y_val = y[:split_idx], y[split_idx:]
-
-        for epoch in range(epochs):
-            if verbose:
-                print(f"======================= Epoch #{epoch+1}/{epochs} - Start training =======================")
-            self._epoch = epoch
-            self._one_step(X_train, y_train, batch_size=batch_size, training=True, verbose=verbose, device=device)
-
-            # self.loss_meter.reset()
-            # self.acc_meter.reset()
-
-            loss, acc = self._one_step(X_val, y_val, batch_size=len(X_val), training=False, verbose=False, device=device)
-            if verbose:
-                print(f">>>>>>>>>>> Epoch loss: {loss:.4f} - Epoch acc: {acc:.4f}")
-            toc = time.time()
-            if verbose:
-                print(f"Time cost: {toc-tic:.2f} seconds")
-
-    def _one_step(self, X_data, y_data, batch_size=32, training=True, verbose=True, device='cpu'):
-        if training: # shuffle
-            idx = np.random.permutation(len(X_data))
-            X = X_data[idx]
-            y = y_data[idx]
-        else:
-            X = X_data
-            y = y_data
-        
-        loss_sum, acc_sum, sample_num = 0., 0, 0
-        for start_idx in range(0, len(X), batch_size):
-            Xb = Tensor(X[start_idx:start_idx+batch_size])
-            yb = y[start_idx:start_idx+batch_size]
-
-            y_hat = self.model(Xb)
-            if yb.ndim > 1:
-                y_true = yb.argmax(axis=1)
-            else:
-                y_true = yb
-
-            loss = self.loss_fn(y_hat, y_true)
-
-            if y_hat.ndim > 1:
-                y_hat = y_hat.argmax(axis=1)
-            else:
-                y_hat = y_hat
-
-            if training:
-                self.model.cleargrads()
-                loss.backward()
-                self.optimizer.update()
-            
-            loss_sum += loss.data * len(Xb)
-            acc_sum += (y_hat == y_true).sum()
-            sample_num += len(Xb)
-
-            # self.loss_meter.update(loss.data)
-            # self.acc_meter.update(acc_sum / sample_num)
-            
-            if verbose:
-                progress_bar(start_idx + len(Xb), len(X), self._epoch, loss.data, acc_sum / sample_num)
-        if verbose:
-            sys.stdout.write('\n')
-
-        return loss_sum / sample_num, acc_sum / sample_num 
-
-class Evaluator:
-    def __init__(self, model, loss_fn):
-        self.model = model
-        self.loss_fn = loss_fn
-        # self.loss_meter = AverageMeter('Loss')
-        # self.acc_meter = AverageMeter('Acc')
-        # self.time_meter = TimeMeter()
-
-    def evaluate(self, data_loader, batch_size=32, verbose=True, device='cpu'):
-        loss_sum, acc_sum, sample_num = 0., 0, 0
-        if verbose:
-            print(f"======================= Start evaluation =======================")
-
-        # self.model.to(device)
-        X, y = data_loader.get_data()
-        for start_idx in range(0, len(X), batch_size):
-            Xb = Tensor(X[start_idx:start_idx+batch_size])
-            yb = y[start_idx:start_idx+batch_size]
-
-            with usingConfig('train', False):
-                y_hat = self.model(Xb)
-                
-                if yb.ndim > 1:
-                    y_true = yb.argmax(axis=1)
-                else:
-                    y_true = yb
-                loss = self.loss_fn(y_hat, y_true) 
-            
-            if y_hat.ndim > 1:
-                y_hat = y_hat.data.argmax(axis=1)
-            else:
-                y_hat = y_hat.data
-            loss_sum += loss.data * len(Xb)
-            acc_sum += (y_hat == y_true).sum()
-            sample_num += len(Xb)
-
-            # self.loss_meter.update(loss.data)
-            # self.acc_meter.update(acc_sum / sample_num)
-        
-        return loss_sum / sample_num, acc_sum / sample_num
-
-        
-'''
