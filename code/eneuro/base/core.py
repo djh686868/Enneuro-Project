@@ -42,9 +42,6 @@ class Config:
     record_graph = False
     current_tracer = None   # 当前活动的 Tracer
 
-    autocast = False
-    current_dtype = np.float32
-
     @classmethod
     @contextlib.contextmanager
     def using_config(cls, attr, value):
@@ -360,11 +357,6 @@ class Function:
     def __call__(self, *inputs):
         inputs = [as_Tensor(x) for x in inputs]#判断or转化类型
         xs = [x.data for x in inputs]
-
-        # 自动混合精度转换
-        if Config.autocast:
-            xs = self.auto_cast(xs)
-        #assert isinstance(xs[0], np.ndarray)
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
             ys = (ys,)
@@ -374,11 +366,12 @@ class Function:
             这里需要使用python原装的max
             否则会出现list没有max方法的问题
         '''
-        self.generation = max([x.generation for x in inputs])
-        for output in outputs:
-            output.set_creator(self)
-        self.inputs = inputs
-        self.outputs = [weakref.ref(output) for output in outputs]#弱引用，避免循环引用
+        if Config.enable_backprop:
+            self.generation = max([x.generation for x in inputs])
+            for output in outputs:
+                output.set_creator(self)
+            self.inputs = inputs
+            self.outputs = [weakref.ref(output) for output in outputs]
         current_layer_name = self.__class__.__name__.lower()
         if VISUAL_CONFIG["ENABLE_ALL_LAYERS"] and self.visualize:
             self._print_output(outputs[0])
@@ -422,38 +415,6 @@ class Function:
 
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-
-    def auto_cast(self, xs):
-        func_cls = self.__class__
-        # 跳过 Cast/DeCast 自身，避免无限递归
-        if func_cls not in (f.Cast, f.DeCast):
-            #print(func_cls)
-            # 可以低精度
-            if func_cls in f.CastRigistry.cancast:
-                # 若输入不是低精度，则转换
-                need_cast = False
-                for x in xs:
-                    if x.dtype != Config.current_dtype:
-                        need_cast = True
-                        break
-                    
-                if need_cast:
-                    xs = [as_array(x) for x in f.cast(xs)]
-
-                
-            # 需要高精度
-            elif func_cls in f.CastRigistry.resist_cast:
-                # 若输入是低精度，则转换
-                need_decast = False
-                for x in xs:
-                    if x.dtype == Config.current_dtype:
-                        need_decast = True
-                        break
-
-                if need_decast:
-                    xs = [as_array(x) for x in f.cast(xs)]
-            # 其他算子默认不转换（可依据需求扩展）
-        return xs
 
 '''
 base operators

@@ -11,6 +11,13 @@ import cv2
 import numpy as np
 
 try:
+    import cupy as cp  # type: ignore
+    has_cupy = True
+except ImportError:
+    cp = None
+    has_cupy = False
+
+try:
     import psutil  # type: ignore
 except ImportError:
     psutil = None
@@ -89,6 +96,41 @@ def _get_memory_info_fallback():
 
 def _memory_mb(num_bytes):
     return float(num_bytes) / (1024.0 * 1024.0)
+
+
+def _resolve_device(requested):
+    device = (requested or 'cpu').lower()
+    if device in ('cuda', 'gpu'):
+        if not has_cupy:
+            print('[WARN] CuPy 未安装，已自动回退到 CPU 运行。')
+            return 'cpu'
+        try:
+            gpu_count = cp.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            print('[WARN] GPU 不可用，已自动回退到 CPU 运行。原因: {}'.format(exc))
+            return 'cpu'
+        if gpu_count <= 0:
+            print('[WARN] 未检测到可用 GPU，已自动回退到 CPU 运行。')
+            return 'cpu'
+    return device
+
+
+def _to_numpy(x):
+    if has_cupy and isinstance(x, cp.ndarray):
+        return cp.asnumpy(x)
+    return np.asarray(x)
+
+
+def _backend_name(arr):
+    if has_cupy and isinstance(arr, cp.ndarray):
+        return 'cupy'
+    return 'numpy'
+
+
+def _device_label(device):
+    if device in ('cuda', 'gpu'):
+        return 'gpu'
+    return 'cpu'
 
 
 def collect_process_metrics(start_wall, start_cpu_time, start_rss, fallback_proc_time_start=None, fallback_trace_started=False):
@@ -303,18 +345,20 @@ def train_one_epoch(model, optimizer, loader):
     return mse_sum / max(sample_num, 1)
 
 
-def evaluate(model, loader):
+def evaluate(model, loader, device='cpu'):
     mse_sum = 0.0
     mae_sum = 0.0
     sample_num = 0
 
     with Config.using_config('train', False):
         for xb, yb in loader:
-            pred = model(as_Tensor(xb))
+            xb = as_Tensor(xb).to(device)
+            yb = as_Tensor(yb).to(device)
+            pred = model(xb)
             loss = meanSquaredError(pred, yb)
 
-            pred_np = pred.data.reshape(-1)
-            yb_np = yb.data.reshape(-1)
+            pred_np = _to_numpy(pred.data).reshape(-1)
+            yb_np = _to_numpy(yb.data).reshape(-1)
             batch_n = len(yb)
             mse_sum += float(loss.data) * batch_n
             mae_sum += float(np.abs(pred_np - yb_np).sum())
@@ -330,11 +374,11 @@ def main():
     default_best_ckpt = Path(__file__).resolve().parent / 'checkpoints' / 'resnet18_donkeycar_best_checkpoint.json'
 
     parser = argparse.ArgumentParser(description='DonkeyCar图像转向角回归训练 (ResNet18)')
-    parser.add_argument('--data-dir', type=str, default='D:/Data/data', help='数据目录，默认自动查找')
+    parser.add_argument('--data-dir', type=str, default=r'D:\Enneuro\tests\testdata\data', help='数据目录，默认自动查找')
     parser.add_argument('--epochs', type=int, default=4)
-    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--batch-size', type=int, default=4)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--image-size', type=int, default=64)
+    parser.add_argument('--image-size', type=int, default=256)
     parser.add_argument('--train-ratio', type=float, default=0.7)
     parser.add_argument('--val-ratio', type=float, default=0.15)
     parser.add_argument('--max-samples', type=int, default=0, help='限制样本量以快速启动训练，<=0表示全量')
@@ -342,10 +386,13 @@ def main():
     parser.add_argument('--best-checkpoint', type=str, default=str(default_best_ckpt), help='验证集最优模型checkpoint路径')
     parser.add_argument('--load-checkpoint', type=str, default=None, help='从已有checkpoint加载并继续训练')
     parser.add_argument('--save-each-epoch', action='store_true', help='每个epoch结束后都保存checkpoint')
+    parser.add_argument('--device', type=str, default='cuda', help='训练设备: cpu/cuda')
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
 
     np.random.seed(args.seed)
+
+    device = _resolve_device(args.device)
 
     data_dir = find_data_dir(args.data_dir)
     print('[INFO]使用数据目录:', data_dir)
@@ -374,9 +421,16 @@ def main():
     val_loader = DataLoader(DonkeycarDataset(x_va, y_va), batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(DonkeycarDataset(x_te, y_te), batch_size=args.batch_size, shuffle=False)
 
-    model = ResNet18Steering()
+    model = ResNet18Steering().to(device)
     optimizer = Adam(model.params(), lr=args.lr)
     trainer = Trainer(model, meanSquaredError, optimizer)
+
+    first_param = next(model.params(), None)
+    if first_param is not None and getattr(first_param, 'data', None) is not None:
+        print('[INFO] model_param_backend={}'.format(_backend_name(first_param.data)))
+    sample_x, _ = train_loader.dataset[0]
+    print('[INFO] sample_input_backend={}'.format(_backend_name(sample_x.data)))
+    print('[INFO] requested_device={} resolved_device={}'.format(args.device, device))
 
     resumed_epoch = 0
     if args.load_checkpoint:
@@ -411,29 +465,34 @@ def main():
     for local_epoch in range(args.epochs):
         epoch = resumed_epoch + local_epoch
         trainer._epoch = epoch
+        epoch_start = time.perf_counter()
         tr_mse, _ = trainer._one_step(
             train_loader,
             batch_size=args.batch_size,
             training=True,
             verbose=False,
-            device='cpu',
+            device=device,
         )
-        va_mse, va_mae = evaluate(model, val_loader)
-        print('[EPOCH {}/{}] train_mse={:.6f} val_mse={:.6f} val_mae={:.6f}'.format(
+        tr_mse = float(tr_mse)
+        va_mse, va_mae = evaluate(model, val_loader, device=device)
+        epoch_duration = time.perf_counter() - epoch_start
+        print('[EPOCH {}/{}] train_mse={:.6f} val_mse={:.6f} val_mae={:.6f} epoch_time_s={:.4f}'.format(
             epoch + 1,
             total_target_epoch,
             tr_mse,
             va_mse,
             va_mae,
+            epoch_duration,
         ))
 
-        if args.best_checkpoint and va_mse < best_val_mse:
-            best_val_mse = va_mse
-            best_epoch = epoch + 1
-            best_path = Path(args.best_checkpoint)
-            best_path.parent.mkdir(parents=True, exist_ok=True)
-            save_checkpoint(model, optimizer, epoch + 1, str(best_path))
-            print('[INFO] 已保存best checkpoint: {} (val_mse={:.6f})'.format(best_path, va_mse))
+        # 注：已按要求注释掉保存当前最佳参数的逻辑
+        # if args.best_checkpoint and va_mse < best_val_mse:
+        #     best_val_mse = va_mse
+        #     best_epoch = epoch + 1
+        #     best_path = Path(args.best_checkpoint)
+        #     best_path.parent.mkdir(parents=True, exist_ok=True)
+        #     save_checkpoint(model, optimizer, epoch + 1, str(best_path))
+        #     print('[INFO] 已保存best checkpoint: {} (val_mse={:.6f})'.format(best_path, va_mse))
 
         if args.save_each_epoch and args.save_checkpoint:
             save_path = Path(args.save_checkpoint)
@@ -441,7 +500,7 @@ def main():
             save_checkpoint(model, optimizer, epoch + 1, str(save_path))
             print('[INFO] 已保存checkpoint:', save_path)
 
-    te_mse, te_mae = evaluate(model, test_loader)
+    te_mse, te_mae = evaluate(model, test_loader, device=device)
     metrics = collect_process_metrics(
         start_wall,
         start_cpu_time,
@@ -450,7 +509,8 @@ def main():
         fallback_trace_started=fallback_trace_started,
     )
 
-    print('[RESULT] test_mse={:.6f} test_mae={:.6f}'.format(te_mse, te_mae))
+    device_label = _device_label(device)
+    print('[RESULT] device={} test_mse={:.6f} test_mae={:.6f}'.format(device_label, te_mse, te_mae))
     print('[METRIC] wall_time_s={:.4f}'.format(metrics['wall_s']))
     if metrics['mem_peak_mb'] is not None:
         print('[METRIC] peak_memory_mb={:.2f}'.format(metrics['mem_peak_mb']))

@@ -8,113 +8,112 @@ from .graph import Graph, Node, NodeType
 
 from ..base.core import Tensor, Function, Config
 from ..nn.optim import Optimizer
-from ..base.functions import to_xp, get_array_module
+from ..base.functions import to_xp, get_array_module, compare_dtype_greater
 from ..base import functions as f
+
 
 class AutoCastManager:
     @staticmethod
     def apply_cast(graph: Graph, dtype: str='float16') -> Graph:
-        # 初始化
-        for node in graph.nodes.values():
-            node.casted = False
-            node.decasted = False
-
         # 按拓扑序遍历所有 Function 节点
         for node in graph.topological_order():
             if node.type != NodeType.FUNCTION: # 排除tensor
                 continue
 
             func_cls = node.true_obj.__class__
-            # 已有Cast/Decast，则对后继节点（Tensor）进行标记
-            if func_cls in (f.Cast, f.DeCast):
+            # 是Cast/UpCast/DownCast节点，直接标记后继节点的dtype
+            if func_cls in (f.Cast, f.UpCast, f.DownCast):
+                func_dtype = node.true_obj.dtype
+
                 suc_nodes = graph.get_successors(node)
                 for suc_node in suc_nodes:
                     if func_cls == f.Cast:
-                        suc_node.casted = True
-                        suc_node.decasted = False
+                        suc_node.dtype = func_dtype
+                    elif func_cls == f.UpCast:
+                        if compare_dtype_greater(func_dtype, suc_node.dtype):
+                            suc_node.dtype = func_dtype
                     else:
-                        suc_node.decasted = True
-                        suc_node.casted = False
+                        if compare_dtype_greater(suc_node.dtype, func_dtype):
+                            suc_node.dtype = func_dtype
+                continue
                     
             # 其他Function节点
             else:
-                # 获取前继节点状态
                 pre_nodes = graph.get_predecessors(node)
-                pre_casted = True
-                for pre in pre_nodes:
-                    if pre.casted == False:
-                        pre_casted = False
-                        break
-
-                pre_decasted = True
-                for pre in pre_nodes:
-                    if pre.decasted == False:
-                        pre_decasted = False
-                        break
-                
-                # 后继节点
                 suc_nodes = graph.get_successors(node)
 
                 # 可以低精度的Function
-                if func_cls in f.CastRigistry.cancast:
-                    # 若输入不是低精度，则添加Cast
-                    if not pre_casted:
-                        '''
-                        pre(Tensor) -> node
-                        变为
-                        pre(Tensor) -> Cast -> Tensor -> node 
-                        '''
-                        # 去除原来的边
-                        graph._remove_edges_to_node(node, keep_set=set(pre_nodes))
-                        for pre in pre_nodes:
+                if func_cls in f.CastRegistry.cancast:
+                    for pre in pre_nodes:
+                        # 若输入高精度，则添加DownCast
+                        if compare_dtype_greater(pre.dtype, dtype):
+                            '''
+                            pre(Tensor) -> node
+                            变为
+                            pre(Tensor) -> DownCast -> Tensor -> node 
+                            '''
+                            # 去除原来的边
+                            graph._remove_edges_to_node(node, keep_set=set([pre]))
                             # 添加节点
-                            cast_func = f.Cast(dtype=dtype)
-                            tensor = cast_func(pre.true_obj)
-                            cast_node = graph.add_node(cast_func)
+                            downcast_func = f.DownCast(dtype=dtype)
+                            tensor = downcast_func(pre.true_obj)
+                            downcast_node = graph.add_node(downcast_func)
                             tensor_node = graph.add_node(weakref.ref(tensor))
                             # 添加边
-                            graph.add_edge(pre, cast_node)
-                            graph.add_edge(cast_node, tensor_node)
+                            graph.add_edge(pre, downcast_node)
+                            graph.add_edge(downcast_node, tensor_node)
                             graph.add_edge(tensor_node, node)
+                        # 重新连接一次边，以保证输入的顺序
+                        else:
+                            graph._remove_edges_to_node(node, keep_set=set([pre]))
+                            graph.add_edge(pre, node)
+
                     
                     # 标记后继节点
                     for suc in suc_nodes:
-                        suc.casted = True
-                        suc.decasted = False
+                        if compare_dtype_greater(suc.dtype, dtype):
+                            suc.dtype = dtype 
 
                 # 需要高精度的Function
-                elif func_cls in f.CastRigistry.resist_cast:
-                    # 若输入是低精度，则添加Decast
-                    if not pre_decasted:
-                        '''
-                        pre(Tensor) -> node
-                        变为
-                        pre(Tensor) -> DeCast -> Tensor -> node 
-                        '''
-                        # 去除原来的边
-                        graph._remove_edges_to_node(node, keep_set=set(pre_nodes))
-                        for pre in pre_nodes:
+                elif func_cls in f.CastRegistry.resist_cast:
+                    UPPER_DTYPE = 'float32'
+                    for pre in pre_nodes:
+                        # 若输入是低精度，则添加UpCast
+                        if compare_dtype_greater(UPPER_DTYPE, pre.dtype):
+                            '''
+                            pre(Tensor) -> node
+                            变为
+                            pre(Tensor) -> UpCast -> Tensor -> node 
+                            '''
+                            # 去除原来的边
+                            graph._remove_edges_to_node(node, keep_set=set([pre]))
                             # 添加节点
-                            decast_func = f.DeCast(dtype=dtype)
-                            tensor = decast_func(pre.true_obj)
-                            decast_node = graph.add_node(decast_func)
+                            upcast_func = f.UpCast(dtype=UPPER_DTYPE)
+                            tensor = upcast_func(pre.true_obj)
+                            upcast_node = graph.add_node(upcast_func)
                             tensor_node = graph.add_node(weakref.ref(tensor))
                             # 添加边
-                            graph.add_edge(pre, decast_node)
-                            graph.add_edge(decast_node, tensor_node)
+                            graph.add_edge(pre, upcast_node)
+                            graph.add_edge(upcast_node, tensor_node)
                             graph.add_edge(tensor_node, node)
+                        # 重新连接一次边，以保证输入的顺序
+                        else:
+                            graph._remove_edges_to_node(node, keep_set=set([pre]))
+                            graph.add_edge(pre, node)
                     
                     # 标记后继节点
                     for suc in suc_nodes:
-                        suc.casted = False
-                        suc.decasted = True
+                        if compare_dtype_greater(UPPER_DTYPE, suc.dtype):
+                            suc.dtype = dtype 
                         
                 # 没有要求的Function
                 else:
-                    # 传递标记
-                    for suc in suc_nodes:
-                        suc.casted = pre_casted
-                        suc.decasted = pre_decasted
+                    if len(pre_nodes) > 0:
+                        xp = get_array_module(pre_nodes[0])
+                        suc_dtype = xp.result_type(*[pre.dtype for pre in pre_nodes])
+
+                        for suc in suc_nodes:
+                            suc.dtype = suc_dtype
 
         return graph
 
@@ -124,9 +123,8 @@ class GradScaler:
     用例：
     scaler = GradScaler()  # 损失缩放器
     for input, target in data:
-        with autocast(dtype='float16'):   # 前向：低精度
-            output = model(input)
-            loss = loss_fn(output, target)
+        output = model(input)
+        loss = loss_fn(output, target)       # 前向：低精度
 
         scaler.scale(loss).backward()         # 反向：缩放后的低精度梯度计算
         scaler.step(optimizer)               # 反缩放梯度并更新参数
