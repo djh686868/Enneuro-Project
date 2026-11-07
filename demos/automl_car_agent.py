@@ -1,7 +1,10 @@
-"""Run the basic AutoML agent on the behavioral-cloning ZIP archive.
+"""在车辆行为克隆 ZIP 数据上运行基础 AutoML 调参 agent。
 
-Example (CUDA):
-  python demos/automl_car_agent.py --zip D:\\Undergraduate\\WZH\\EnNeuro\\car_behavioral_cloning_data.zip --device cuda --backend rawmodule --trials 3
+脚本默认使用 center/left/right 三路摄像头，并为左右图像应用标准的
+转向修正。数据不会整体解压到内存；执行器按 batch 从 ZIP 中读取图像。
+
+CUDA 示例：
+`python demos/automl_car_agent.py --zip D:\\Undergraduate\\WZH\\EnNeuro\\car_behavioral_cloning_data.zip --device cuda --backend rawmodule --trials 3`
 """
 
 from __future__ import annotations
@@ -24,6 +27,11 @@ def run_car_demo(zip_path: str | Path, *, trials: int = 3, epochs: int = 1,
                  cameras: tuple[str, ...] = ("center", "left", "right"),
                  max_samples: int | None = None,
                  output: str | Path = "artifacts/automl_car_full"):
+    """构造车辆执行器、运行固定预算搜索并保存报告。
+
+    调参目标是验证集 MSE；报告还会保留测试集 MSE/MAE，便于观察最优
+    验证配置在未参与决策的数据上的表现。
+    """
     executor = CarBehavioralCloningExecutor(
         zip_path,
         epochs=epochs,
@@ -48,6 +56,7 @@ def run_car_demo(zip_path: str | Path, *, trials: int = 3, epochs: int = 1,
         logger=logger,
     )
     result = agent.run()
+    # JSON 报告用于查看全局结果，JSONL 事件日志用于按 trial 复盘决策过程。
     report_path, events_path = logger.write_report(output, result)
     payload = {
         "best_config": result.best_config,
@@ -61,6 +70,7 @@ def run_car_demo(zip_path: str | Path, *, trials: int = 3, epochs: int = 1,
 
 
 def main() -> int:
+    """解析命令行参数并启动车辆调参演示。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--zip", required=True, dest="zip_path")
     parser.add_argument("--trials", type=int, default=3)
