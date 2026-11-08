@@ -67,7 +67,7 @@ class Layer:
     
     #参数生成器，递归获取所有参数
     def params(self):
-        for name in self._params:
+        for name in sorted(self._params):
             obj = self.__dict__[name]
 
             if isinstance(obj, Layer):
@@ -91,9 +91,16 @@ class Layer:
         # 从字典的值中创建一个列表并返回
         return list(params_dict.values())
 
+    def named_parameters(self):
+        """稳定的完整参数名；包含 BatchNorm 等非训练状态。"""
+        params_dict = {}
+        self._flatten_params(params_dict)
+        for name in sorted(params_dict):
+            yield name, params_dict[name]
+
     #为保存参数来记录参数字典
     def _flatten_params(self, params_dict, parent_key=""):
-        for name in self._params:
+        for name in sorted(self._params):
             obj = self.__dict__[name]
             key = parent_key + '/' + name if parent_key else name
 

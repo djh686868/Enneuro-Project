@@ -74,6 +74,29 @@ class Trainer:
         self.enable_early_stop = enable_early_stop
         self._early_stop_initialized = False
 
+    def _forward_loss(self, xb, yb, device):
+        xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
+        prediction = self.model(xb)
+        target_class = yb.argmax(axis=1) if yb.ndim > 1 else yb
+        target = yb if _is_multilabel(prediction, yb) else target_class
+        loss = self.loss_fn(prediction, target)
+        return xb, yb, prediction, target_class, target, loss
+
+    def compute_batch_gradients(self, xb, yb, device='cpu'):
+        """计算单批梯度；不更新参数，供单进程基线和 PS Worker 共用。"""
+        self.model.cleargrads()
+        xb, yb, prediction, _, _, loss = self._forward_loss(xb, yb, device)
+        loss.backward()
+        gradients = {}
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and param.grad is not None:
+                data = param.grad.data
+                gradients[name] = cp.asnumpy(data) if has_cupy and isinstance(data, cp.ndarray) else np.array(data, copy=True)
+        value = loss.data
+        if has_cupy and isinstance(value, cp.ndarray):
+            value = cp.asnumpy(value)
+        return float(np.asarray(value)), len(xb), gradients
+
     def init_early_stop(self, patience=5, mode='loss', min_delta=0.0, restore_best_weights=True):
         """
         初始化早停机制
@@ -228,41 +251,11 @@ class Trainer:
         last_y_hat_shape, last_yb_ndim = None, None
 
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = as_Tensor(Xb)
-            yb = as_Tensor(yb)
-            Xb = Xb.to(device)
-            yb = yb.to(device)
-
             if training:
-                y_hat = self.model(Xb)
-
-                # 兼容单标签分类与多标签分类
-                if yb.ndim > 1:
-                    y_true_cls = yb.argmax(axis=1)
-                    if _is_multilabel(y_hat, yb):
-                        y_target = yb
-                    else:
-                        y_target = y_true_cls
-                else:
-                    y_true_cls = yb
-                    y_target = yb
-
-                loss = self.loss_fn(y_hat, y_target)
+                Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
             else:
                 with Config.using_config('enable_backprop', False), Config.using_config('train', False):
-                    y_hat = self.model(Xb)
-
-                    if yb.ndim > 1:
-                        y_true_cls = yb.argmax(axis=1)
-                        if _is_multilabel(y_hat, yb):
-                            y_target = yb
-                        else:
-                            y_target = y_true_cls
-                    else:
-                        y_true_cls = yb
-                        y_target = yb
-
-                    loss = self.loss_fn(y_hat, y_target)
+                    Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
 
             batch_acc_info = _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=self.loss_fn)
             if batch_acc_info[0] is None:
