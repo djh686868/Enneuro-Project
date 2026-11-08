@@ -98,4 +98,4 @@ $env:MKL_NUM_THREADS = '1'
 python -m eneuro.distributed.benchmark --dataset mnist --samples 1024 --batch-size 64 --epochs 1 --workers 1 2 4 --repeats 3 --timeout-s 30 --output metrics/mnist-ps
 ```
 
-吞吐量实验只测了 MNIST 前 1,024 条、单机 CPU 和每组 3 次重复；等价性实验使用前 4,096 条、单次 64 步。样本标准差描述本次吞吐量运行的波动，不构成对多设备集群的性能保证。实验也未单独测量网络纯传输时间、PS CPU 占用或异步 PS 效果。若课程要求的“本学期新数据集”特指另一份数据，需确认名称和文件后按同一实验口径重跑。
+吞吐量实验只测了 MNIST 前 1,024 条、单机 CPU 和每组 3 次重复；等价性实验使用前 4,096 条、单次 64 步。样本标准差描述本次吞吐量运行的波动，不构成对多设备集群的性能保证。实验也未单独测量网络纯传输时间、PS CPU 占用或异步 PS 效果。本学期新增的自动驾驶小车数据集已有独立的 [同步 PS 测试报告](M2_AutoDrive_PS测试报告.md)；两份报告的模型和数据设置不同，吞吐量数值不能直接作为同模型对照。
