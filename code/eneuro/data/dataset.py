@@ -1,15 +1,19 @@
 import numpy as np
 
 
+def identity_transform(value):
+    return value
+
+
 class Dataset:
     def __init__(self, train=True, transform=None, target_transform=None):
         self.train = train
         self.transform = transform
         self.target_transform = target_transform
         if self.transform is None:
-            self.transform = lambda x: x
+            self.transform = identity_transform
         if self.target_transform is None:
-            self.target_transform = lambda x: x
+            self.target_transform = identity_transform
 
         self.data = None
         self.label = None
