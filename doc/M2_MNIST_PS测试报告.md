@@ -36,6 +36,29 @@
 
 ![Worker 数与通信及屏障占比](M2_MNIST_PS结果/communication_ratio.png)
 
+## M2-08：MNIST 多步 loss 等价性对照
+
+为检验“训练跑得快”之外的**更新正确性**，另做单进程与同步 PS 双 Worker 的逐步对照。两组都使用 MNIST 前 4,096 条、LeNet、全局 batch 64、SGD 学习率 0.01、seed 42、不打乱数据、1 epoch，共进行 64 次优化器更新。PS 的两个 Worker 每步各处理 32 条；单进程每步处理同一批 64 条。每一步都记录**更新前**的 batch loss；PS 端按两个 Worker 的样本数对 loss 加权平均，得到与单进程口径一致的全局 batch loss。最后再逐参数比较更新结果。
+
+| 对照指标 | 实测结果 |
+| --- | ---: |
+| 对齐的优化器 step 数 | 64 / 64 |
+| 两条 loss 曲线的最大绝对差 | 8.88 × 10⁻¹⁶ |
+| 训练结束时参数最大绝对差 | 5.55 × 10⁻¹⁷ |
+| 单进程前 8 / 后 8 个 batch 的平均 loss | 2.418 / 2.308 |
+
+![MNIST 单进程与双 Worker PS 的逐步 loss 及绝对差](M2_MNIST_PS结果/equivalence_loss.png)
+
+上图上半部分是两条逐 step loss 曲线，下半部分是每一步的绝对差；原始 64 个点见 [equivalence_loss.csv](M2_MNIST_PS结果/equivalence_loss.csv)。两条线几乎完全重合，最大差仅为浮点计算精度量级；最终参数也一致，说明**本次配置下**同步 PS 的分片、按样本数加权聚合与 SGD 更新能够复现单进程全局 batch 的计算。单个 batch 的 loss 会因样本不同而上下波动，因此图上的锯齿不表示训练出错。前后 8 个 batch 的均值有所下降，但这次实验仅覆盖 4,096 条、1 个 epoch，不能据此推断模型已充分收敛或最终分类准确率。
+
+复现命令（在仓库 `code` 目录，激活 `paddle30`，与吞吐量实验使用相同的 CPU 线程设置）：
+
+```powershell
+python -m eneuro.distributed.equivalence --samples 4096 --batch-size 64 --timeout-s 120
+```
+
+## 性能结果分析
+
 ### 训练吞吐量为什么先升后降
 
 **实测：**2 Worker 为 1 Worker 的 1.44 倍；4 Worker 只有 1 Worker 的 0.82 倍、2 Worker 的约 0.56 倍。每个 Worker 的本地 batch 从 64 降到 32 时，两进程可以并行完成前向和反向计算，抵过新增的通信与等待。继续降到 16 时，每步计算任务更小，但每个 Worker 仍需上传一份完整模型梯度，并接收一份更新后的完整参数；PS 还必须等 4 份梯度齐备才能更新。因此“Worker 越多就越快”在这个规模下不成立。
@@ -64,7 +87,7 @@
 
 ## 正确性、复现与局限
 
-真实 MNIST + LeNet 的双 Worker 单步参数更新已与单进程全局 batch 更新逐参数对齐；PS 的单元和集成测试共 9 项通过。这验证了测试覆盖的同步聚合与更新逻辑，但不等于已验证完整训练过程的收敛等价性。实验命令：
+原有 PS 单元和集成测试共 9 项通过，其中包含 MNIST + LeNet 双 Worker 单步参数等价性测试；本次又完成了上面的 64 步 MNIST loss 曲线和最终参数对照。它验证了当前确定性配置下的多步计算等价性，但不等于已验证完整数据集上的最终收敛或准确率。吞吐量实验命令：
 
 ```powershell
 cd D:\Python_Code\Enneuro-Project\code
@@ -75,4 +98,4 @@ $env:MKL_NUM_THREADS = '1'
 python -m eneuro.distributed.benchmark --dataset mnist --samples 1024 --batch-size 64 --epochs 1 --workers 1 2 4 --repeats 3 --timeout-s 30 --output metrics/mnist-ps
 ```
 
-本报告只测了 MNIST 前 1,024 条、单机 CPU 和每组 3 次重复；样本标准差描述本次运行波动，不构成对多设备集群的性能保证。实验也未单独测量网络纯传输时间、PS CPU 占用或异步 PS 效果。若课程要求的“本学期新数据集”特指另一份数据，需确认名称和文件后按同一实验口径重跑。
+吞吐量实验只测了 MNIST 前 1,024 条、单机 CPU 和每组 3 次重复；等价性实验使用前 4,096 条、单次 64 步。样本标准差描述本次吞吐量运行的波动，不构成对多设备集群的性能保证。实验也未单独测量网络纯传输时间、PS CPU 占用或异步 PS 效果。若课程要求的“本学期新数据集”特指另一份数据，需确认名称和文件后按同一实验口径重跑。
