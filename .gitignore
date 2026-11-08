@@ -17,6 +17,7 @@ tests/data.zip
 *.json
 *.png
 !doc/M2_MNIST_PS结果/*.png
+!doc/M2_AutoDrive_PS结果/*.png
 *.jpg
 *.jpeg
 !tests/artifacts/m1_09_environment.json
