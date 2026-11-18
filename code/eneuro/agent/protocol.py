@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any, Mapping, Protocol, Sequence
 
 
@@ -32,7 +33,7 @@ class SearchSpace:
     def __post_init__(self) -> None:
         # 在任务启动前尽早发现非法空间，避免跑了几个 trial 才失败。
         lo, hi = self.lr
-        if lo <= 0 or hi <= lo:
+        if not (isfinite(lo) and isfinite(hi) and 0 < lo < hi):
             raise ValueError("lr must be a positive (low, high) interval")
         if not self.batch_size or any(int(v) <= 0 for v in self.batch_size):
             raise ValueError("batch_size must contain positive integers")
@@ -71,7 +72,8 @@ class TrialResult:
     def to_dict(self) -> dict[str, Any]:
         """转换成报告层可直接序列化的普通字典。"""
         return {
-            "objective": float(self.objective),
+            # 缺失或无穷的目标值用 JSON null 表示，失败原因由 status/error 保留。
+            "objective": float(self.objective) if isfinite(self.objective) else None,
             "metrics": dict(self.metrics),
             "status": self.status,
             "error": self.error,

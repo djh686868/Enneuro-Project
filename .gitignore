@@ -24,3 +24,7 @@ CLAUDE.md
 saved_models/
 *.pkl
 .vscode/
+
+# 本地车辆行为克隆数据
+/data/IMG/
+/data/driving_log.csv

@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import json
-import zlib
 from typing import Any, Mapping
 
 import numpy as np
@@ -67,61 +65,114 @@ class MNISTExecutor:
     """对真实 MNIST 数组或生成 fixture 执行小型 softmax 训练。
 
     输入既可以是 ``(N, 784)``，也可以是图像形状；初始化时会统一展平。
-    如果调用方没有提供验证集，则按固定比例划分。内部实现了真实的
-    minibatch SGD/Adam 更新，目标为 ``1 - validation_accuracy``，因此能够
-    直接接入当前“目标越小越好”的搜索器。
+    内层默认使用单次留出，未传入验证集时从训练输入中切出后 20%。
+    交叉验证将这两部分合并为开发集，使用固定的划分种子生成验证折。
+    外层测试数据只交给 ``evaluate_final``，由它在配置确定后重训和评分。
     """
 
     def __init__(self, x_train: np.ndarray | None = None, y_train: np.ndarray | None = None,
                  x_val: np.ndarray | None = None, y_val: np.ndarray | None = None,
                  *, epochs: int = 2, seed: int = 0, max_samples: int | None = 256,
-                 num_classes: int = 10):
+                 num_classes: int = 10, x_test: np.ndarray | None = None,
+                 y_test: np.ndarray | None = None, inner_folds: int = 1, split_seed: int = 0):
+        if inner_folds < 1:
+            raise ValueError("inner_folds must be positive")
+        if (x_test is None) != (y_test is None):
+            raise ValueError("x_test and y_test must be provided together")
         # 没有真实数据时退回到确定性的合成 fixture，保证演示仍可运行。
         if x_train is None or y_train is None:
             x_train, y_train = make_tiny_mnist(seed=seed, samples=max_samples or 256)
-        x_train = np.asarray(x_train, dtype=np.float32)
+        x_train = self._features(x_train)
         y_train = np.asarray(y_train, dtype=np.int64)
-        # 线性分类器只接受二维矩阵，因此将图像样本展平。
-        if x_train.ndim > 2:
-            x_train = x_train.reshape(len(x_train), -1)
         # 小规模 trial 可限制训练样本数，控制每次评估成本。
         if max_samples is not None:
             x_train, y_train = x_train[:max_samples], y_train[:max_samples]
-        # 未显式提供验证集时，按时间稳定的前后切分训练/验证数据。
+        # 保留直接使用执行器时的默认划分。演示脚本会传入预先固定的验证集。
         if x_val is None or y_val is None:
             split = max(1, int(0.8 * len(x_train)))
             x_val, y_val = x_train[split:], y_train[split:]
             x_train, y_train = x_train[:split], y_train[:split]
         self.x_train, self.y_train = x_train, y_train
-        self.x_val, self.y_val = np.asarray(x_val, dtype=np.float32), np.asarray(y_val, dtype=np.int64)
-        if self.x_val.ndim > 2:
-            self.x_val = self.x_val.reshape(len(self.x_val), -1)
+        self.x_val, self.y_val = self._features(x_val), np.asarray(y_val, dtype=np.int64)
+        self._x_test = x_test
+        self._y_test = y_test
+        self._x_dev = np.concatenate((self.x_train, self.x_val))
+        self._y_dev = np.concatenate((self.y_train, self.y_val))
+        if inner_folds > len(self._x_dev):
+            raise ValueError("inner_folds cannot exceed the development sample count")
+
+        # 固定折只依赖 split_seed。换训练种子或比较两个配置时，各折仍完全一致。
+        self._folds = ()
+        if inner_folds > 1:
+            indices = np.random.default_rng(split_seed).permutation(len(self._x_dev))
+            self._folds = tuple(np.array_split(indices, inner_folds))
         self.epochs, self.seed = int(epochs), int(seed)
         self.num_classes = int(num_classes)
         self.calls = 0
 
+    @staticmethod
+    def _features(x: np.ndarray) -> np.ndarray:
+        """将图像样本展平为线性分类器需要的二维矩阵。"""
+        x = np.asarray(x, dtype=np.float32)
+        return x.reshape(len(x), -1) if x.ndim > 2 else x
+
     def execute(self, config: Mapping[str, Any]) -> TrialResult:
-        """用给定超参数完成一次小型训练，并返回验证错误率。"""
+        """仅使用开发集进行内层评估，目标为 1 - 验证准确率。"""
+        optimizer = str(config["optimizer"]).lower()
+        if optimizer not in {"sgd", "adam"}:
+            return TrialResult(float("inf"), status="failed", error=f"unknown optimizer: {optimizer}")
+        if self._folds:
+            accuracies = []
+            for i, val_idx in enumerate(self._folds):
+                train_idx = np.concatenate(self._folds[:i] + self._folds[i + 1:])
+                accuracies.append(self._fit_and_score(
+                    config, self._x_dev[train_idx], self._y_dev[train_idx],
+                    self._x_dev[val_idx], self._y_dev[val_idx],
+                ))
+        else:
+            accuracies = [self._fit_and_score(
+                config, self.x_train, self.y_train, self.x_val, self.y_val,
+            )]
+        accuracy = float(np.mean(accuracies))
+        objective = 1.0 - accuracy
+        self.calls += 1
+        metrics = {"accuracy": accuracy, "error_rate": objective}
+        if self._folds:
+            metrics["fold_accuracies"] = accuracies
+        return TrialResult(objective, metrics)
+
+    def evaluate_final(self, config: Mapping[str, Any]) -> dict[str, float]:
+        """在完整开发集上重训选出的配置，再用外层测试集评估一次。"""
+        if self._x_test is None or self._y_test is None or len(self._y_test) == 0:
+            raise ValueError("final evaluation requires a non-empty outer test set")
+        accuracy = self._fit_and_score(
+            config, self._x_dev, self._y_dev,
+            self._features(self._x_test), np.asarray(self._y_test, dtype=np.int64),
+        )
+        return {"test_accuracy": accuracy, "test_error_rate": 1.0 - accuracy}
+
+    def _fit_and_score(self, config: Mapping[str, Any], x_train: np.ndarray, y_train: np.ndarray,
+                       x_eval: np.ndarray, y_eval: np.ndarray) -> float:
+        """内层和外层共用训练配方，配置只控制优化器、学习率和批大小。"""
         lr = float(config["lr"])
         batch_size = int(config["batch_size"])
         optimizer = str(config["optimizer"]).lower()
         if optimizer not in {"sgd", "adam"}:
-            return TrialResult(float("inf"), status="failed", error=f"unknown optimizer: {optimizer}")
-        # 将配置编码进随机种子，使同一配置不依赖 trial 执行顺序。
-        key = json.dumps(dict(config), sort_keys=True).encode("utf-8")
-        rng = np.random.default_rng(self.seed + zlib.crc32(key) % 1000003)
-        n_features = self.x_train.shape[1]
+            raise ValueError(f"unknown optimizer: {optimizer}")
+        # 同一运行的所有候选和基线从同一个种子开始，公平比较不同配置。
+        rng = np.random.default_rng(self.seed)
+        n_features = x_train.shape[1]
         weights = rng.normal(0, 0.01, (n_features, self.num_classes)).astype(np.float32)
         bias = np.zeros(self.num_classes, dtype=np.float32)
         m_w = np.zeros_like(weights); v_w = np.zeros_like(weights)
         m_b = np.zeros_like(bias); v_b = np.zeros_like(bias)
         step = 0
-        # 每个 epoch 重新打乱样本，但仍由配置专属 RNG 控制，保证复现。
+        # 对同一个训练子集，所有配置在每个 epoch 使用相同的样本排列。
         for _ in range(max(1, self.epochs)):
-            order = rng.permutation(len(self.x_train))
+            order = rng.permutation(len(x_train))
             for start in range(0, len(order), batch_size):
                 idx = order[start:start + batch_size]
-                x, y = self.x_train[idx], self.y_train[idx]
+                x, y = x_train[idx], y_train[idx]
                 logits = x @ weights + bias
                 logits -= logits.max(axis=1, keepdims=True)
                 probs = np.exp(logits); probs /= probs.sum(axis=1, keepdims=True)
@@ -138,13 +189,12 @@ class MNISTExecutor:
                 else:
                     cw, cb = grad_w, grad_b
                 weights -= lr * cw; bias -= lr * cb
-        # 训练结束后只在验证集上计算 objective，避免把测试集用于决策。
-        val_logits = self.x_val @ weights + bias
-        pred = val_logits.argmax(axis=1)
-        accuracy = float(np.mean(pred == self.y_val)) if len(self.y_val) else 0.0
-        objective = 1.0 - accuracy
-        self.calls += 1
-        return TrialResult(objective, {"accuracy": accuracy, "error_rate": objective})
+        # 评分样本从未进入这个模型的参数更新。调用方负责选择内层或外层数据。
+        logits = x_eval @ weights + bias
+        if not np.isfinite(logits).all():
+            raise ValueError("MNIST scores must be finite")
+        pred = logits.argmax(axis=1)
+        return float(np.mean(pred == y_eval)) if len(y_eval) else 0.0
 
     # 对外提供 fit 别名，方便将执行器接入习惯“fit”命名的调用方。
     fit = execute

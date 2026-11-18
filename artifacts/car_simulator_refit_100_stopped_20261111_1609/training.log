@@ -1,0 +1,6 @@
+NVIDIA GeForce RTX 4060 | seed=42 | {'batch_size': 16, 'lr': 0.0027507807793601623, 'optimizer': 'adam'}
+100 轮重新训练 | 输出目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_simulator_refit_100
+epoch 001/100 | train_mse=0.765723 | elapsed_s=344.5
+epoch 002/100 | train_mse=0.555752 | elapsed_s=586.6
+epoch 003/100 | train_mse=0.499503 | elapsed_s=915.0
+epoch 004/100 | train_mse=0.459906 | elapsed_s=1236.9
