@@ -257,41 +257,11 @@ class Trainer:
         last_y_hat_shape, last_yb_ndim = None, None
         
         for batch_idx, (Xb, yb) in enumerate(data_loader):
-            Xb = as_Tensor(Xb)
-            yb = as_Tensor(yb)
-            Xb = Xb.to(device)
-            yb = yb.to(device)
-
             if training:
-                y_hat = self.model(Xb)
-
-                # 兼容单标签分类与多标签分类
-                if yb.ndim > 1:
-                    y_true_cls = yb.argmax(axis=1)
-                    if _is_multilabel(y_hat, yb):
-                        y_target = yb
-                    else:
-                        y_target = y_true_cls
-                else:
-                    y_true_cls = yb
-                    y_target = yb
-
-                loss = self.loss_fn(y_hat, y_target)
+                Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
             else:
                 with Config.using_config('enable_backprop', False), Config.using_config('train', False):
-                    y_hat = self.model(Xb)
-
-                    if yb.ndim > 1:
-                        y_true_cls = yb.argmax(axis=1)
-                        if _is_multilabel(y_hat, yb):
-                            y_target = yb
-                        else:
-                            y_target = y_true_cls
-                    else:
-                        y_true_cls = yb
-                        y_target = yb
-
-                    loss = self.loss_fn(y_hat, y_target)
+                    Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
 
             batch_acc_info = _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=self.loss_fn)
             if batch_acc_info[0] is None:
