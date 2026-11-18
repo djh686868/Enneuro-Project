@@ -1,0 +1,58 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+32.8,1133584826,240,4723270.1,3654677.0,968880,15645378,3361002.3,void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_128x64_16x3_nt_align1>(T1::Params)
+17.9,617481249,264,2338944.1,2025535.0,124190,12567092,2121405.7,void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_64x32_16x4_nt_align1>(T1::Params)
+11.2,388953360,192,2025798.8,1354410.0,111934,14972557,2167551.5,void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_32x32_16x5_nt_align1>(T1::Params)
+7.7,265897057,96,2769761.0,2133085.5,2027168,9262761,1276787.4,void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_64x64_16x4_nt_align1>(T1::Params)
+7.2,250342397,96,2607733.3,2094206.0,1941217,6870417,1023530.7,"void dgemm_largek<(bool)0, (bool)1, (int)4, (int)4, (int)4, (int)3, (int)3, (int)16>(double *, const double *, const double *, int, int, int, int, int, int, const double *, const double *, double, double, int, int, int *, int *)"
+2.3,80386219,1368,58761.9,5616.0,1568,5104205,265023.1,cupy_copy__float64_float64
+2.1,74145970,11472,6463.2,1056.0,863,3343946,56907.3,cupy_multiply__float32_float32_float32
+2.1,73139291,96,761867.6,99614.5,4640,4686228,1162385.8,cupy_copy__complex64_complex64
+1.7,58326788,912,63954.8,23455.5,1184,760723,94278.3,cupy_copy__float32_float64
+1.6,56415558,4872,11579.5,3663.5,928,7189131,136401.8,cupy_add__float64_float64_float64
+1.5,51265557,9288,5519.5,1024.0,864,3061486,45002.3,cupy_add__float32_float32_float32
+1.4,48656103,24,2027337.6,1640741.0,1431337,3537062,792637.3,void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_32x64_16x4_nt_align1>(T1::Params)
+1.2,43161838,10488,4115.4,2144.0,864,272859,8693.9,cupy_copy__float32_float32
+1.2,40652002,2544,15979.6,8096.0,1248,2302330,84098.9,cupy_sum
+1.0,36000117,7536,4777.1,1056.0,895,2351546,42401.2,cupy_subtract__float32_float32_float32
+1.0,35560698,7176,4955.5,992.0,895,910289,25761.5,cupy_true_divide__float32_float32_float32
+0.9,31709699,408,77719.9,9984.0,2016,7582469,465292.2,cupy_var_core_float32
+0.6,19334693,24,805612.2,436713.0,212189,4002431,1048917.5,"void regular_fft_c2r<(unsigned int)108, EPT<(unsigned int)9, (unsigned int)12>, (unsigned int)8, (unsigned int)16, (padding_t)6, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+0.5,17341312,4224,4105.4,2496.0,928,1794210,29531.4,cupy_multiply__float64_float32_float64
+0.5,16206176,17472,927.6,800.0,767,5088,299.1,cupy_fill
+0.4,14526170,1704,8524.7,1280.0,1056,214876,22992.7,cupy_copy__float64_float32
+0.4,14387348,5904,2436.9,1024.0,960,425177,10452.6,cupy_power__float32_float_float32
+0.4,12741359,816,15614.4,9152.0,1888,2193501,78219.8,cupy_mean
+0.3,8663606,72,120327.9,17008.0,6048,1536551,220697.0,"void regular_fft<(unsigned int)60, EPT<(unsigned int)6, (unsigned int)10>, (unsigned int)16, (unsigned int)8, (padding_t)6, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, float>(kernel_arguments_t<T9>)"
+0.2,6621452,96,68973.5,72031.0,41311,396538,36255.6,ampere_sgemm_64x32_sliced1x4_tt
+0.2,6051196,48,126066.6,97214.5,960,588279,147718.6,cupy_true_divide__float32_float_float32
+0.2,5999560,2640,2272.6,928.0,864,292668,8915.7,cupy_sqrt__float32_float32
+0.1,4784407,144,33225.0,40479.0,5568,58015,20945.1,ampere_sgemm_32x32_sliced1x4_tt
+0.1,4711799,384,12270.3,4736.0,1567,2164829,110601.2,cupy_multiply__float64_bool_float64
+0.1,4543449,96,47327.6,47183.0,46400,60255,1383.1,ampere_sgemm_64x64_tt
+0.1,4275676,48,89076.6,29167.5,3424,1217548,203396.3,ampere_sgemm_64x64_nt
+0.1,3865950,408,9475.4,2351.5,1376,2288251,114025.0,cupy_maximum__float32_float_float32
+0.1,3601191,24,150049.6,147405.0,147134,169181,6948.2,cupy_argmax
+0.1,3521478,3648,965.3,928.0,895,2464,76.8,cupy_subtract__float_float32_float32
+0.1,3300167,408,8088.6,4032.0,1344,397113,27814.6,cupy_greater__float32_float_bool
+0.1,3050961,72,42374.5,42351.5,41695,44735,435.4,ampere_sgemm_128x64_tt
+0.1,3036208,24,126508.7,126494.0,126462,126590,32.7,cupy_max
+0.1,2453495,24,102229.0,19775.5,14143,694197,171976.2,cupy_add__int64_int64_int64
+0.1,2098784,24,87449.3,86895.0,85631,95391,2152.6,ampere_cgemm_32x64_nn
+0.0,1440426,24,60017.8,59983.0,58943,61247,649.2,ampere_sgemm_32x32_sliced1x4_nt
+0.0,801190,816,981.9,928.0,864,1376,90.7,cupy_negative__float32_float32
+0.0,720945,24,30039.4,30047.0,29919,30112,48.4,"void cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::DeviceSegmentedReduceKernel<cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::DeviceReducePolicy<float, int, cuda::std::__4::plus<void>>::Policy600, float *, float *, cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::TransformInputIterator<int, _arange, cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::CountingInputIterator<int, long long>, long long>, cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::TransformInputIterator<int, _arange, cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::CountingInputIterator<int, long long>, long long>, int, cuda::std::__4::plus<void>, float, float>(T2, T3, T4, T5, int, T7, T8)"
+0.0,701036,48,14604.9,15007.0,5216,24767,9349.2,ampere_sgemm_32x128_tt
+0.0,595000,24,24791.7,22976.0,16032,37983,7982.8,cupy_scatter_update
+0.0,557043,48,11605.1,13856.0,5375,18655,5966.7,"void regular_fft_r2c<(unsigned int)108, EPT<(unsigned int)9, (unsigned int)12>, (unsigned int)8, (unsigned int)16, (padding_t)6, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+0.0,532826,24,22201.1,21327.5,20383,31936,2771.7,cupy_multiply__float32_bool_float32
+0.0,518716,384,1350.8,1184.0,1120,2528,247.2,cupy_true_divide__float64_float32_float64
+0.0,368506,408,903.2,896.0,832,1248,35.2,cupy_add__float32_float_float32
+0.0,151870,24,6327.9,6304.0,6208,6496,67.6,"void gemmSN_NN_kernel<float, (int)256, (int)4, (int)2, (int)8, (int)4, (int)4, (bool)0, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<float>>(cublasGemmSmallNParams<T9, T10, T11, T1>)"
+0.0,132414,24,5517.3,5008.0,3808,11392,1808.4,cupy_arange__int_int_int64
+0.0,129632,24,5401.3,5408.0,5280,5696,76.1,cupy_true_divide__float32_int64_float64
+0.0,113343,96,1180.7,1088.0,1024,1408,126.0,"void scal_kernel<double, double, (int)1, (bool)1, (int)6, (int)4, (int)4, (int)4>(cublasTransposeParams<T2>, const T1 *, T1 *, const T2 *)"
+0.0,81376,48,1695.3,1760.0,1248,2368,423.3,"void cublasLt::splitKreduce_kernel<(int)32, (int)16, int, float, float, float, (bool)0, float, float, float, (bool)1, (bool)0, (bool)0>(cublasLt::cublasSplitKParams<T6>, const T4 *, const T9 *, T8 *, T5 *, const T6 *, const T6 *, const T10 *, const T4 *, T10 *, void *, long long, T6 *, int *, T6 *, const T6 *, const T6 *, const T6 *, const T6 *)"
+0.0,67837,24,2826.5,2832.0,2783,2880,27.9,"void gemmSN_TN_kernel<float, (int)128, (int)16, (int)2, (int)4, (int)8, (int)9, (bool)0, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<float>>(cublasGemmSmallNParams<T9, T10, T11, T1>)"
+0.0,37055,24,1544.0,1536.0,1504,1600,23.5,cupy_cub_argmax
+0.0,27519,24,1146.6,1152.0,1087,1184,26.2,"void cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::DeviceReduceSingleTileKernel<cub::CUB_200600_500_520_600_610_700_750_800_860_890_900_NS::DeviceReducePolicy<float, unsigned int, cuda::std::__4::plus<void>>::Policy600, float *, float *, unsigned int, cuda::std::__4::plus<void>, float, float, cuda::std::__4::__identity>(T2, T3, T4, T5, T6, T8)"
+0.0,25824,24,1076.0,1088.0,1056,1088,15.8,cupy_multiply__float32_float_float32

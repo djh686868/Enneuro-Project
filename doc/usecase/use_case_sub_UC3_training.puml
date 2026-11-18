@@ -1,0 +1,66 @@
+@startuml
+' ============================================================
+' 子用例图：训练管理 (UC3)
+' 所属模块：基础功能模块
+' 修改：User仅连接顶层入口用例，消除大量放射连线，符合UML规范
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "训练管理" {
+    usecase "配置训练参数" as UC3_1
+    usecase "选择优化器" as UC3_2
+    usecase "选择损失函数" as UC3_3
+    usecase "执行训练" as UC3_4
+    usecase "监控训练过程" as UC3_5
+    usecase "配置L1和L2权重正则化" as UC3_6
+    usecase "配置早停训练策略" as UC3_7
+    usecase "启用自动混合精度FP16训练" as UC3_8
+    usecase "卷积多路径加速开关控制" as UC3_9
+}
+
+rectangle "依赖的外部用例" {
+    usecase "模型持久化" as UC5
+    usecase "可视化" as UC7
+}
+
+' =========核心改动：用户只连接顶层主入口=========
+User --> UC3_1
+User --> UC3_4
+User --> UC3_5
+
+' 训练前依赖链路：参数配置 → 优化器 → 损失函数 → 执行训练
+UC3_1 ..> UC3_2 : depends on
+UC3_2 ..> UC3_3 : depends on
+UC3_3 ..> UC3_4 : depends on
+
+' 各类扩展功能（均扩展损失函数/训练流程）
+UC3_6 ..> UC3_3 : <<extend>>
+UC3_7 ..> UC3_3 : <<extend>>
+UC3_8 ..> UC3_3 : <<extend>>
+UC3_9 ..> UC3_3 : <<extend>>
+
+' 监控扩展训练流程
+UC3_5 ..> UC3_4 : <<extend>>
+
+' 跨模块依赖
+UC3_4 ..> UC5 : depends on
+UC3_5 ..> UC7 : depends on
+
+@enduml

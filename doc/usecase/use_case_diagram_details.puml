@@ -1,0 +1,83 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 14
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+left to right direction
+
+rectangle "数据管理" {
+    usecase "加载数据集" as UC1_1
+    usecase "数据预处理" as UC1_2
+    usecase "创建数据加载器" as UC1_3
+    usecase "多进程异步加载" as UC1_4
+    usecase "链式图像增强" as UC1_5
+    usecase "分片与资源回收" as UC1_6
+}
+
+rectangle "模型构建" {
+    usecase "创建神经网络模型" as UC2_1
+    usecase "配置模型参数" as UC2_2
+    usecase "初始化模型权重" as UC2_3
+    usecase "构建ResNet18" as UC2_4
+    usecase "BatchNorm配置" as UC2_5
+    usecase "深度可分离/转置卷积" as UC2_6
+    usecase "设备自动迁移" as UC2_7
+}
+
+rectangle "训练管理" {
+    usecase "配置训练参数" as UC3_1
+    usecase "选择优化器" as UC3_2
+    usecase "选择损失函数" as UC3_3
+    usecase "执行训练" as UC3_4
+    usecase "监控训练过程" as UC3_5
+    usecase "L1/L2正则化" as UC3_6
+    usecase "早停策略" as UC3_7
+    usecase "FP16混合精度" as UC3_8
+    usecase "多路径卷积加速" as UC3_9
+}
+
+rectangle "算子编译优化" {
+    usecase "捕获静态计算图" as UC4_1
+    usecase "算子自动融合" as UC4_2
+    usecase "Winograd/FFT调度" as UC4_3
+    usecase "静态图离线推理" as UC4_4
+}
+
+rectangle "模型持久化" {
+    usecase "保存模型与检查点" as UC5_1
+    usecase "加载模型与检查点" as UC5_2
+    usecase "优化器状态序列化" as UC5_3
+}
+
+rectangle "评估与测试" {
+    usecase "模型评估" as UC6_1
+    usecase "计算指标" as UC6_2
+    usecase "可视化结果" as UC6_3
+}
+
+rectangle "可视化" {
+    usecase "训练曲线" as UC7_1
+    usecase "特征图" as UC7_2
+    usecase "混淆矩阵" as UC7_3
+    usecase "延迟/吞吐指标" as UC7_4
+}
+
+rectangle "可解释AI分析" {
+    usecase "Grad-CAM热力图" as UC8_1
+    usecase "导向反向传播" as UC8_2
+    usecase "自动驾驶决策分析" as UC8_3
+}
+
+UC2_4 --|> UC2_1 : is a
+UC3_7 ..> UC3_4 : extends
+UC3_8 ..> UC3_4 : extends
+UC3_9 ..> UC3_4 : extends
+
+@enduml

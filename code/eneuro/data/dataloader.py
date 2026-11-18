@@ -106,7 +106,10 @@ class _AsyncLoaderIter:
             random.shuffle(indices)
         
         #计算总的批次数
-        total_batches = len(self)
+        if loader.drop_last:
+            total_batches = len(indices) // loader.batch_size
+        else:
+            total_batches = (len(indices) + loader.batch_size - 1) // loader.batch_size
 
         #将批次分配给各个worker(按连续批次划分)
         batches_per_worker = (total_batches + self.num_workers - 1) // self.num_workers
@@ -139,6 +142,9 @@ class _AsyncLoaderIter:
         self._total_batches = total_batches
         self._workers_finished = 0
         self._shutdown = False
+    
+    def __len__(self):
+        return self._total_batches
     
     def __iter__(self):
         return self

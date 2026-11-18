@@ -1,0 +1,41 @@
+@startuml
+' ============================================================
+' 子用例图：可视化 (UC7)
+' 所属模块：辅助功能模块
+' 修改：User仅连接顶层入口，与整套图纸规范统一
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "可视化" {
+    usecase "训练曲线可视化" as UC7_1
+    usecase "特征图可视化" as UC7_2
+    usecase "混淆矩阵可视化" as UC7_3
+    usecase "训练延迟/吞吐指标可视化" as UC7_4
+}
+
+' =========核心修改：用户仅连接顶层入口=========
+User --> UC7_1
+User --> UC7_2
+User --> UC7_3
+
+' 延迟/吞吐指标与训练曲线同属训练过程的可视化
+UC7_1 ..> UC7_4 : depends on
+
+@enduml

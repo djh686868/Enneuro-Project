@@ -1,0 +1,961 @@
+      "last_csv_row_index": 8035,
+      "csv_row_ranges_inclusive": [
+        [
+          7232,
+          8035
+        ]
+      ],
+      "braking_driving_rows": 20
+    }
+  }
+}
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> if ($LASTEXITCODE -ne 0) { throw 'Car 数据检查失败，请查看上方错误。' }
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> # 小样本调参
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 -u demos/automl_car_cuda.py `
+>>   --data-dir $car --strategy $strategy `
+>>   --trials 12 --budget-minutes 240 `
+>>   --epochs 6 --refit-epochs 30 `
+>>   --max-samples 90 --image-width 48 --image-height 32 `
+>>   --output $output
+设备 NVIDIA GeForce RTX 4060 | CUDA CuPy | EnNeuro ResNet18 四目标回归
+数据目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\data
+训练/验证/测试 72/9/9 张 | 48×32
+搜索最多 12 组，每组 6 epoch | 最终重训 30 epoch，单独计时
+回归目标 steering, throttle, brake, speed
+搜索策略 beyesian | 搜索预算 14400.0s | 输出目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_20261110_004718
+[试验 1] 开始 | adam lr=0.001391 batch=32 | 剩余 14400.0s
+  [搜索] epoch 1 | 训练损失 10.3350 | 已用 1.0s | 剩余 14399.0s
+  [搜索] epoch 2 | 训练损失 0.9318 | 已用 1.4s | 剩余 14398.6s
+  [搜索] epoch 3 | 训练损失 0.2652 | 已用 1.8s | 剩余 14398.2s
+  [搜索] epoch 4 | 训练损失 0.1163 | 已用 2.1s | 剩余 14397.9s
+  [搜索] epoch 5 | 训练损失 0.1071 | 已用 2.5s | 剩余 14397.5s
+  [搜索] epoch 6 | 训练损失 0.1189 | 验证标准化 MSE 0.999539 | 已用 2.9s | 剩余 14397.1s
+[试验 1] 完成 | 验证标准化 MSE 0.999539 | 历史最佳标准化 MSE 0.999539 | 搜索已用 2.9s
+[试验 2] 开始 | sgd lr=0.001855 batch=16 | 剩余 14397.1s
+  [搜索] epoch 1 | 训练损失 44.2460 | 已用 3.4s | 剩余 14396.6s
+  [搜索] epoch 2 | 训练损失 2.5265 | 已用 3.8s | 剩余 14396.2s
+  [搜索] epoch 3 | 训练损失 0.3002 | 已用 4.2s | 剩余 14395.8s
+  [搜索] epoch 4 | 训练损失 0.2023 | 已用 4.6s | 剩余 14395.4s
+  [搜索] epoch 5 | 训练损失 0.0704 | 已用 4.9s | 剩余 14395.1s
+  [搜索] epoch 6 | 训练损失 0.1135 | 验证标准化 MSE 0.336730 | 已用 5.3s | 剩余 14394.7s
+[试验 2] 完成 | 验证标准化 MSE 0.336730 | 历史最佳标准化 MSE 0.336730 | 搜索已用 5.3s
+[试验 3] 开始 | sgd lr=0.0001378 batch=32 | 剩余 14394.7s
+  [搜索] epoch 1 | 训练损失 1.5483 | 已用 5.7s | 剩余 14394.3s
+  [搜索] epoch 2 | 训练损失 0.1787 | 已用 6.0s | 剩余 14394.0s
+  [搜索] epoch 3 | 训练损失 0.1535 | 已用 6.3s | 剩余 14393.7s
+  [搜索] epoch 4 | 训练损失 0.1486 | 已用 6.5s | 剩余 14393.5s
+  [搜索] epoch 5 | 训练损失 0.1439 | 已用 6.8s | 剩余 14393.2s
+  [搜索] epoch 6 | 训练损失 0.0888 | 验证标准化 MSE 0.580206 | 已用 7.0s | 剩余 14393.0s
+[试验 3] 完成 | 验证标准化 MSE 0.580206 | 历史最佳标准化 MSE 0.336730 | 搜索已用 7.0s
+[试验 4] 开始 | sgd lr=0.001331 batch=32 | 剩余 14393.0s
+  [搜索] epoch 1 | 训练损失 14.7718 | 已用 7.5s | 剩余 14392.5s
+  [搜索] epoch 2 | 训练损失 3.5031 | 已用 7.7s | 剩余 14392.3s
+  [搜索] epoch 3 | 训练损失 1.5955 | 已用 7.9s | 剩余 14392.1s
+  [搜索] epoch 4 | 训练损失 1.1040 | 已用 8.2s | 剩余 14391.8s
+  [搜索] epoch 5 | 训练损失 1.0265 | 已用 8.4s | 剩余 14391.6s
+  [搜索] epoch 6 | 训练损失 0.7238 | 验证标准化 MSE 0.296494 | 已用 8.7s | 剩余 14391.3s
+[试验 4] 完成 | 验证标准化 MSE 0.296494 | 历史最佳标准化 MSE 0.296494 | 搜索已用 8.7s
+[试验 5] 开始 | adam lr=0.0001546 batch=32 | 剩余 14391.3s
+  [搜索] epoch 1 | 训练损失 2.5335 | 已用 9.2s | 剩余 14390.8s
+  [搜索] epoch 2 | 训练损失 0.6082 | 已用 9.6s | 剩余 14390.4s
+  [搜索] epoch 3 | 训练损失 0.4700 | 已用 9.9s | 剩余 14390.1s
+  [搜索] epoch 4 | 训练损失 0.2777 | 已用 10.3s | 剩余 14389.7s
+  [搜索] epoch 5 | 训练损失 0.2384 | 已用 10.6s | 剩余 14389.4s
+  [搜索] epoch 6 | 训练损失 0.1627 | 验证标准化 MSE 0.228817 | 已用 11.0s | 剩余 14389.0s
+[试验 5] 完成 | 验证标准化 MSE 0.228817 | 历史最佳标准化 MSE 0.228817 | 搜索已用 11.0s
+[试验 6] 开始 | adam lr=0.0001063 batch=32 | 剩余 14389.0s
+  [搜索] epoch 1 | 训练损失 1.9639 | 已用 11.5s | 剩余 14388.5s
+  [搜索] epoch 2 | 训练损失 0.6689 | 已用 11.8s | 剩余 14388.2s
+  [搜索] epoch 3 | 训练损失 0.4467 | 已用 12.2s | 剩余 14387.8s
+  [搜索] epoch 4 | 训练损失 0.2839 | 已用 12.5s | 剩余 14387.5s
+  [搜索] epoch 5 | 训练损失 0.2729 | 已用 12.9s | 剩余 14387.1s
+  [搜索] epoch 6 | 训练损失 0.1508 | 验证标准化 MSE 0.312941 | 已用 13.3s | 剩余 14386.7s
+[试验 6] 完成 | 验证标准化 MSE 0.312941 | 历史最佳标准化 MSE 0.228817 | 搜索已用 13.3s
+[试验 7] 开始 | adam lr=0.0002206 batch=16 | 剩余 14386.7s
+  [搜索] epoch 1 | 训练损失 1.7680 | 已用 14.0s | 剩余 14386.0s
+  [搜索] epoch 2 | 训练损失 0.4555 | 已用 14.6s | 剩余 14385.4s
+  [搜索] epoch 3 | 训练损失 0.3000 | 已用 15.1s | 剩余 14384.9s
+  [搜索] epoch 4 | 训练损失 0.2303 | 已用 15.7s | 剩余 14384.3s
+  [搜索] epoch 5 | 训练损失 0.1107 | 已用 16.2s | 剩余 14383.8s
+  [搜索] epoch 6 | 训练损失 0.0766 | 验证标准化 MSE 0.078110 | 已用 16.8s | 剩余 14383.2s
+[试验 7] 完成 | 验证标准化 MSE 0.078110 | 历史最佳标准化 MSE 0.078110 | 搜索已用 16.8s
+[试验 8] 开始 | adam lr=0.0001006 batch=16 | 剩余 14383.2s
+  [搜索] epoch 1 | 训练损失 1.2884 | 已用 17.6s | 剩余 14382.4s
+  [搜索] epoch 2 | 训练损失 0.5225 | 已用 18.1s | 剩余 14381.9s
+  [搜索] epoch 3 | 训练损失 0.2718 | 已用 18.7s | 剩余 14381.3s
+  [搜索] epoch 4 | 训练损失 0.2284 | 已用 19.2s | 剩余 14380.8s
+  [搜索] epoch 5 | 训练损失 0.1837 | 已用 19.8s | 剩余 14380.2s
+  [搜索] epoch 6 | 训练损失 0.1337 | 验证标准化 MSE 0.192315 | 已用 20.4s | 剩余 14379.6s
+[试验 8] 完成 | 验证标准化 MSE 0.192315 | 历史最佳标准化 MSE 0.078110 | 搜索已用 20.4s
+[试验 9] 开始 | adam lr=0.0004919 batch=16 | 剩余 14379.6s
+  [搜索] epoch 1 | 训练损失 3.4870 | 已用 21.1s | 剩余 14378.9s
+  [搜索] epoch 2 | 训练损失 0.2442 | 已用 21.6s | 剩余 14378.4s
+  [搜索] epoch 3 | 训练损失 0.1844 | 已用 22.2s | 剩余 14377.8s
+  [搜索] epoch 4 | 训练损失 0.1911 | 已用 22.8s | 剩余 14377.2s
+  [搜索] epoch 5 | 训练损失 0.0806 | 已用 23.3s | 剩余 14376.7s
+  [搜索] epoch 6 | 训练损失 0.0605 | 验证标准化 MSE 0.100158 | 已用 23.9s | 剩余 14376.1s
+[试验 9] 完成 | 验证标准化 MSE 0.100158 | 历史最佳标准化 MSE 0.078110 | 搜索已用 23.9s
+[试验 10] 开始 | sgd lr=0.0001126 batch=16 | 剩余 14376.1s
+  [搜索] epoch 1 | 训练损失 1.0270 | 已用 24.4s | 剩余 14375.6s
+  [搜索] epoch 2 | 训练损失 0.1657 | 已用 24.8s | 剩余 14375.2s
+  [搜索] epoch 3 | 训练损失 0.1745 | 已用 25.2s | 剩余 14374.8s
+  [搜索] epoch 4 | 训练损失 0.1182 | 已用 25.6s | 剩余 14374.4s
+  [搜索] epoch 5 | 训练损失 0.0833 | 已用 25.9s | 剩余 14374.1s
+  [搜索] epoch 6 | 训练损失 0.1030 | 验证标准化 MSE 0.439266 | 已用 26.3s | 剩余 14373.7s
+[试验 10] 完成 | 验证标准化 MSE 0.439266 | 历史最佳标准化 MSE 0.078110 | 搜索已用 26.3s
+[试验 11] 开始 | adam lr=0.0002854 batch=16 | 剩余 14373.7s
+  [搜索] epoch 1 | 训练损失 2.1646 | 已用 27.0s | 剩余 14373.0s
+  [搜索] epoch 2 | 训练损失 0.3508 | 已用 27.7s | 剩余 14372.3s
+  [搜索] epoch 3 | 训练损失 0.1854 | 已用 28.3s | 剩余 14371.7s
+  [搜索] epoch 4 | 训练损失 0.2121 | 已用 28.8s | 剩余 14371.2s
+  [搜索] epoch 5 | 训练损失 0.1012 | 已用 29.4s | 剩余 14370.6s
+  [搜索] epoch 6 | 训练损失 0.1002 | 验证标准化 MSE 0.160897 | 已用 29.9s | 剩余 14370.1s
+[试验 11] 完成 | 验证标准化 MSE 0.160897 | 历史最佳标准化 MSE 0.078110 | 搜索已用 29.9s
+[试验 12] 开始 | adam lr=0.002898 batch=16 | 剩余 14370.1s
+  [搜索] epoch 1 | 训练损失 10.7566 | 已用 30.7s | 剩余 14369.3s
+  [搜索] epoch 2 | 训练损失 0.1538 | 已用 31.2s | 剩余 14368.8s
+  [搜索] epoch 3 | 训练损失 0.1667 | 已用 31.8s | 剩余 14368.2s
+  [搜索] epoch 4 | 训练损失 0.1779 | 已用 32.3s | 剩余 14367.7s
+  [搜索] epoch 5 | 训练损失 0.1486 | 已用 32.9s | 剩余 14367.1s
+  [搜索] epoch 6 | 训练损失 0.1353 | 验证标准化 MSE 2.017620 | 已用 33.5s | 剩余 14366.5s
+[试验 12] 完成 | 验证标准化 MSE 2.017620 | 历史最佳标准化 MSE 0.078110 | 搜索已用 33.5s
+[搜索结束] trial_limit | 12 次试验 | 用时 33.5s
+[外层测试] 最佳配置 {'lr': 0.00022056368162986565, 'batch_size': 16, 'optimizer': 'adam'} | 用训练+验证数据重训，单独计时   
+  [重训] epoch 1 | 训练损失 2.0025 | 已用 1.7s
+  [重训] epoch 2 | 训练损失 0.2579 | 已用 2.3s
+  [重训] epoch 3 | 训练损失 0.1263 | 已用 3.0s
+  [重训] epoch 4 | 训练损失 0.1534 | 已用 3.7s
+  [重训] epoch 5 | 训练损失 0.0833 | 已用 4.4s
+  [重训] epoch 6 | 训练损失 0.0520 | 已用 5.1s
+  [重训] epoch 7 | 训练损失 0.0551 | 已用 5.8s
+  [重训] epoch 8 | 训练损失 0.0481 | 已用 6.4s
+  [重训] epoch 9 | 训练损失 0.0315 | 已用 7.1s
+  [重训] epoch 10 | 训练损失 0.0641 | 已用 7.8s
+  [重训] epoch 11 | 训练损失 0.0549 | 已用 8.4s
+  [重训] epoch 12 | 训练损失 0.0514 | 已用 9.1s
+  [重训] epoch 13 | 训练损失 0.0809 | 已用 9.8s
+  [重训] epoch 14 | 训练损失 0.0416 | 已用 10.5s
+  [重训] epoch 15 | 训练损失 0.0383 | 已用 11.1s
+  [重训] epoch 16 | 训练损失 0.0375 | 已用 11.8s
+  [重训] epoch 17 | 训练损失 0.0189 | 已用 12.5s
+  [重训] epoch 18 | 训练损失 0.0250 | 已用 13.2s
+  [重训] epoch 19 | 训练损失 0.0245 | 已用 13.8s
+  [重训] epoch 20 | 训练损失 0.0110 | 已用 14.5s
+  [重训] epoch 21 | 训练损失 0.0358 | 已用 15.2s
+  [重训] epoch 22 | 训练损失 0.0069 | 已用 15.9s
+  [重训] epoch 23 | 训练损失 0.0106 | 已用 16.6s
+  [重训] epoch 24 | 训练损失 0.0085 | 已用 17.3s
+  [重训] epoch 25 | 训练损失 0.0055 | 已用 18.0s
+  [重训] epoch 26 | 训练损失 0.0509 | 已用 18.7s
+  [重训] epoch 27 | 训练损失 0.1069 | 已用 19.4s
+  [重训] epoch 28 | 训练损失 0.0296 | 已用 20.1s
+  [重训] epoch 29 | 训练损失 0.0430 | 已用 20.8s
+  [重训] epoch 30 | 训练损失 0.0220 | 已用 21.5s
+[外层测试] 测试标准化 MSE 0.790534 | steering MAE 0.0871 | throttle MAE 0.1676 | brake MAE 0.0817 | speed MAE 7.7610
+报告 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_20261110_004718\report.json
+Anytime Performance Curve D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_20261110_004718\anytime.svg
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> Set-Location 'D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $python = 'C:\Users\Administrator\.conda\envs\EnNeuro\python.exe'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $car = 'data'                  
+# 包含 driving_log.csv 和 IMG/ 的目录
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $strategy = 'evlolutionary'    
+     # random / local / evolutionary / beyesian
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $output = "artifacts/car_${strategy}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:CUDA_PATH = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:PATH = "$env:CUDA_PATH\bin;$env:PATH"
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> # 检查四项驾驶标签和训练、验证 、测试划分
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 demos/prepare_automl_data.py car --data-dir $car --telemetry
+{
+  "dataset": "car",
+  "path": "D:\\Undergraduate\\WZH\\EnNeuro\\tmp\\Enneuro-Project\\.worktrees\\automl-basic-agent\\data",
+  "summary": {
+    "train": {
+      "images": 19284,
+      "driving_rows": 6428,
+      "first_csv_row_index": 0,
+      "last_csv_row_index": 7231,
+      "csv_row_ranges_inclusive": [
+        [
+          0,
+          4045
+        ],
+        [
+          4850,
+          7231
+        ]
+      ],
+      "braking_driving_rows": 7
+    },
+    "validation": {
+      "images": 2412,
+      "driving_rows": 804,
+      "first_csv_row_index": 4046,
+      "last_csv_row_index": 4849,
+      "csv_row_ranges_inclusive": [
+        [
+          4046,
+          4849
+        ]
+      ],
+      "braking_driving_rows": 6
+    },
+    "test": {
+      "images": 2412,
+      "driving_rows": 804,
+      "first_csv_row_index": 7232,
+      "last_csv_row_index": 8035,
+      "csv_row_ranges_inclusive": [
+        [
+          7232,
+          8035
+        ]
+      ],
+      "braking_driving_rows": 20
+    }
+  }
+}
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> if ($LASTEXITCODE -ne 0) { throw 'Car 数据检查失败，请查看上方错误。' }
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> # 小样本调参
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 -u demos/automl_car_cuda.py `
+>>   --data-dir $car --strategy $strategy `
+>>   --trials 12 --budget-minutes 240 `
+>>   --epochs 6 --refit-epochs 30 `
+>>   --max-samples 90 --image-width 48 --image-height 32 `
+>>   --output $output
+usage: automl_car_cuda.py [-h] [--data-dir DATA_DIR] [--budget-minutes BUDGET_MINUTES] [--trials TRIALS]
+                          [--strategy {random,local,evolutionary,beyesian}] [--epochs EPOCHS]
+                          [--refit-epochs REFIT_EPOCHS] [--image-width IMAGE_WIDTH] [--image-height IMAGE_HEIGHT]
+                          [--cameras {center,left,right} [{center,left,right} ...]] [--max-samples MAX_SAMPLES]
+                          [--seed SEED] [--device-id DEVICE_ID] [--output OUTPUT]
+automl_car_cuda.py: error: argument --strategy: invalid choice: 'evlolutionary' (choose from random, local, evolutionary, beyesian)
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> Set-Location 'D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $python = 'C:\Users\Administrator\.conda\envs\EnNeuro\python.exe'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $car = 'data'                  
+# 包含 driving_log.csv 和 IMG/ 的目录
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $strategy = 'evolutionary'     
+    # random / local / evolutionary / beyesian
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $output = "artifacts/car_${strategy}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:CUDA_PATH = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:PATH = "$env:CUDA_PATH\bin;$env:PATH"
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> # 检查四项驾驶标签和训练、验证 、测试划分
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 demos/prepare_automl_data.py car --data-dir $car --telemetry
+{
+  "dataset": "car",
+  "path": "D:\\Undergraduate\\WZH\\EnNeuro\\tmp\\Enneuro-Project\\.worktrees\\automl-basic-agent\\data",
+  "summary": {
+    "train": {
+      "images": 19284,
+      "driving_rows": 6428,
+      "first_csv_row_index": 0,
+      "last_csv_row_index": 7231,
+      "csv_row_ranges_inclusive": [
+        [
+          0,
+          4045
+        ],
+        [
+          4850,
+          7231
+        ]
+      ],
+      "braking_driving_rows": 7
+    },
+    "validation": {
+      "images": 2412,
+      "driving_rows": 804,
+      "first_csv_row_index": 4046,
+      "last_csv_row_index": 4849,
+      "csv_row_ranges_inclusive": [
+        [
+          4046,
+          4849
+        ]
+      ],
+      "braking_driving_rows": 6
+    },
+    "test": {
+      "images": 2412,
+      "driving_rows": 804,
+      "first_csv_row_index": 7232,
+      "last_csv_row_index": 8035,
+      "csv_row_ranges_inclusive": [
+        [
+          7232,
+          8035
+        ]
+      ],
+      "braking_driving_rows": 20
+    }
+  }
+}
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> if ($LASTEXITCODE -ne 0) { throw 'Car 数据检查失败，请查看上方错误。' }
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> # 小样本调参
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 -u demos/automl_car_cuda.py `
+>>   --data-dir $car --strategy $strategy `
+>>   --trials 12 --budget-minutes 240 `
+>>   --epochs 6 --refit-epochs 30 `
+>>   --max-samples 90 --image-width 48 --image-height 32 `
+>>   --output $output
+设备 NVIDIA GeForce RTX 4060 | CUDA CuPy | EnNeuro ResNet18 四目标回归
+数据目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\data
+训练/验证/测试 72/9/9 张 | 48×32
+搜索最多 12 组，每组 6 epoch | 最终重训 30 epoch，单独计时
+回归目标 steering, throttle, brake, speed
+搜索策略 evolutionary | 搜索预算 14400.0s | 输出目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_evolutionary_20261110_005144
+[试验 1] 开始 | adam lr=0.001391 batch=32 | 剩余 14400.0s
+  [搜索] epoch 1 | 训练损失 10.3350 | 已用 1.0s | 剩余 14399.0s
+  [搜索] epoch 2 | 训练损失 0.9318 | 已用 1.4s | 剩余 14398.6s
+  [搜索] epoch 3 | 训练损失 0.2652 | 已用 1.8s | 剩余 14398.2s
+  [搜索] epoch 4 | 训练损失 0.1163 | 已用 2.1s | 剩余 14397.9s
+  [搜索] epoch 5 | 训练损失 0.1071 | 已用 2.5s | 剩余 14397.5s
+  [搜索] epoch 6 | 训练损失 0.1189 | 验证标准化 MSE 0.999539 | 已用 2.9s | 剩余 14397.1s
+[试验 1] 完成 | 验证标准化 MSE 0.999539 | 历史最佳标准化 MSE 0.999539 | 搜索已用 2.9s
+[试验 2] 开始 | sgd lr=0.001855 batch=16 | 剩余 14397.1s
+  [搜索] epoch 1 | 训练损失 44.2460 | 已用 3.5s | 剩余 14396.5s
+  [搜索] epoch 2 | 训练损失 2.5265 | 已用 3.8s | 剩余 14396.2s
+  [搜索] epoch 3 | 训练损失 0.3002 | 已用 4.2s | 剩余 14395.8s
+  [搜索] epoch 4 | 训练损失 0.2023 | 已用 4.6s | 剩余 14395.4s
+  [搜索] epoch 5 | 训练损失 0.0704 | 已用 5.0s | 剩余 14395.0s
+  [搜索] epoch 6 | 训练损失 0.1135 | 验证标准化 MSE 0.336730 | 已用 5.5s | 剩余 14394.5s
+[试验 2] 完成 | 验证标准化 MSE 0.336730 | 历史最佳标准化 MSE 0.336730 | 搜索已用 5.5s
+[试验 3] 开始 | sgd lr=0.0001378 batch=32 | 剩余 14394.5s
+  [搜索] epoch 1 | 训练损失 1.5483 | 已用 6.0s | 剩余 14394.0s
+  [搜索] epoch 2 | 训练损失 0.1787 | 已用 6.3s | 剩余 14393.7s
+  [搜索] epoch 3 | 训练损失 0.1535 | 已用 6.5s | 剩余 14393.5s
+  [搜索] epoch 4 | 训练损失 0.1486 | 已用 6.8s | 剩余 14393.2s
+  [搜索] epoch 5 | 训练损失 0.1439 | 已用 7.0s | 剩余 14393.0s
+  [搜索] epoch 6 | 训练损失 0.0888 | 验证标准化 MSE 0.580206 | 已用 7.3s | 剩余 14392.7s
+[试验 3] 完成 | 验证标准化 MSE 0.580206 | 历史最佳标准化 MSE 0.336730 | 搜索已用 7.3s
+[试验 4] 开始 | sgd lr=0.001331 batch=32 | 剩余 14392.7s
+  [搜索] epoch 1 | 训练损失 14.7718 | 已用 7.8s | 剩余 14392.2s
+  [搜索] epoch 2 | 训练损失 3.5031 | 已用 8.0s | 剩余 14392.0s
+  [搜索] epoch 3 | 训练损失 1.5955 | 已用 8.3s | 剩余 14391.7s
+  [搜索] epoch 4 | 训练损失 1.1040 | 已用 8.6s | 剩余 14391.4s
+  [搜索] epoch 5 | 训练损失 1.0265 | 已用 8.8s | 剩余 14391.2s
+  [搜索] epoch 6 | 训练损失 0.7238 | 验证标准化 MSE 0.296494 | 已用 9.1s | 剩余 14390.9s
+[试验 4] 完成 | 验证标准化 MSE 0.296494 | 历史最佳标准化 MSE 0.296494 | 搜索已用 9.1s
+[试验 5] 开始 | adam lr=0.0001546 batch=32 | 剩余 14390.9s
+  [搜索] epoch 1 | 训练损失 2.5335 | 已用 9.6s | 剩余 14390.4s
+  [搜索] epoch 2 | 训练损失 0.6082 | 已用 10.0s | 剩余 14390.0s
+  [搜索] epoch 3 | 训练损失 0.4700 | 已用 10.4s | 剩余 14389.6s
+  [搜索] epoch 4 | 训练损失 0.2777 | 已用 10.7s | 剩余 14389.3s
+  [搜索] epoch 5 | 训练损失 0.2384 | 已用 11.1s | 剩余 14388.9s
+  [搜索] epoch 6 | 训练损失 0.1627 | 验证标准化 MSE 0.228817 | 已用 11.5s | 剩余 14388.5s
+[试验 5] 完成 | 验证标准化 MSE 0.228817 | 历史最佳标准化 MSE 0.228817 | 搜索已用 11.5s
+[试验 6] 开始 | sgd lr=0.000353 batch=16 | 剩余 14388.5s
+  [搜索] epoch 1 | 训练损失 1.5131 | 已用 12.1s | 剩余 14387.9s
+  [搜索] epoch 2 | 训练损失 0.4294 | 已用 12.5s | 剩余 14387.5s
+  [搜索] epoch 3 | 训练损失 0.4470 | 已用 13.0s | 剩余 14387.0s
+  [搜索] epoch 4 | 训练损失 0.1944 | 已用 13.4s | 剩余 14386.6s
+  [搜索] epoch 5 | 训练损失 0.1687 | 已用 13.7s | 剩余 14386.3s
+  [搜索] epoch 6 | 训练损失 0.1999 | 验证标准化 MSE 0.383800 | 已用 14.2s | 剩余 14385.8s
+[试验 6] 完成 | 验证标准化 MSE 0.383800 | 历史最佳标准化 MSE 0.228817 | 搜索已用 14.2s
+[试验 7] 开始 | sgd lr=0.001855 batch=32 | 剩余 14385.8s
+  [搜索] epoch 1 | 训练损失 31.4652 | 已用 14.6s | 剩余 14385.4s
+  [搜索] epoch 2 | 训练损失 24.7321 | 已用 14.9s | 剩余 14385.1s
+  [搜索] epoch 3 | 训练损失 1.0697 | 已用 15.1s | 剩余 14384.9s
+  [搜索] epoch 4 | 训练损失 0.3225 | 已用 15.4s | 剩余 14384.6s
+  [搜索] epoch 5 | 训练损失 0.3145 | 已用 15.6s | 剩余 14384.4s
+  [搜索] epoch 6 | 训练损失 0.1738 | 验证标准化 MSE 0.242259 | 已用 16.0s | 剩余 14384.0s
+[试验 7] 完成 | 验证标准化 MSE 0.242259 | 历史最佳标准化 MSE 0.228817 | 搜索已用 16.0s
+[试验 8] 开始 | sgd lr=0.0001546 batch=16 | 剩余 14384.0s
+  [搜索] epoch 1 | 训练损失 0.9726 | 已用 16.6s | 剩余 14383.4s
+  [搜索] epoch 2 | 训练损失 0.1771 | 已用 17.0s | 剩余 14383.0s
+  [搜索] epoch 3 | 训练损失 0.2027 | 已用 17.4s | 剩余 14382.6s
+  [搜索] epoch 4 | 训练损失 0.1328 | 已用 17.8s | 剩余 14382.2s
+  [搜索] epoch 5 | 训练损失 0.1011 | 已用 18.2s | 剩余 14381.8s
+  [搜索] epoch 6 | 训练损失 0.1247 | 验证标准化 MSE 0.427705 | 已用 18.7s | 剩余 14381.3s
+[试验 8] 完成 | 验证标准化 MSE 0.427705 | 历史最佳标准化 MSE 0.228817 | 搜索已用 18.7s
+[试验 9] 开始 | adam lr=0.00174 batch=32 | 剩余 14381.3s
+  [搜索] epoch 1 | 训练损失 12.4575 | 已用 19.2s | 剩余 14380.8s
+  [搜索] epoch 2 | 训练损失 0.7038 | 已用 19.6s | 剩余 14380.4s
+  [搜索] epoch 3 | 训练损失 0.2187 | 已用 20.0s | 剩余 14380.0s
+  [搜索] epoch 4 | 训练损失 0.1696 | 已用 20.3s | 剩余 14379.7s
+  [搜索] epoch 5 | 训练损失 0.0758 | 已用 20.7s | 剩余 14379.3s
+  [搜索] epoch 6 | 训练损失 0.1036 | 验证标准化 MSE 2.163386 | 已用 21.0s | 剩余 14379.0s
+[试验 9] 完成 | 验证标准化 MSE 2.163386 | 历史最佳标准化 MSE 0.228817 | 搜索已用 21.1s
+[试验 10] 开始 | adam lr=0.001331 batch=32 | 剩余 14378.9s
+  [搜索] epoch 1 | 训练损失 9.9824 | 已用 21.6s | 剩余 14378.4s
+  [搜索] epoch 2 | 训练损失 1.0040 | 已用 22.0s | 剩余 14378.0s
+  [搜索] epoch 3 | 训练损失 0.2459 | 已用 22.3s | 剩余 14377.7s
+  [搜索] epoch 4 | 训练损失 0.1438 | 已用 22.7s | 剩余 14377.3s
+  [搜索] epoch 5 | 训练损失 0.0697 | 已用 23.0s | 剩余 14377.0s
+  [搜索] epoch 6 | 训练损失 0.1056 | 验证标准化 MSE 0.671977 | 已用 23.4s | 剩余 14376.6s
+[试验 10] 完成 | 验证标准化 MSE 0.671977 | 历史最佳标准化 MSE 0.228817 | 搜索已用 23.4s
+[试验 11] 开始 | adam lr=0.0001546 batch=16 | 剩余 14376.6s
+  [搜索] epoch 1 | 训练损失 1.4356 | 已用 24.2s | 剩余 14375.8s
+  [搜索] epoch 2 | 训练损失 0.4508 | 已用 24.8s | 剩余 14375.2s
+  [搜索] epoch 3 | 训练损失 0.3334 | 已用 25.3s | 剩余 14374.7s
+  [搜索] epoch 4 | 训练损失 0.2260 | 已用 25.9s | 剩余 14374.1s
+  [搜索] epoch 5 | 训练损失 0.1189 | 已用 26.6s | 剩余 14373.4s
+  [搜索] epoch 6 | 训练损失 0.0890 | 验证标准化 MSE 0.097249 | 已用 27.3s | 剩余 14372.7s
+[试验 11] 完成 | 验证标准化 MSE 0.097249 | 历史最佳标准化 MSE 0.097249 | 搜索已用 27.3s
+[试验 12] 开始 | sgd lr=0.001507 batch=16 | 剩余 14372.7s
+  [搜索] epoch 1 | 训练损失 24.6326 | 已用 27.9s | 剩余 14372.1s
+  [搜索] epoch 2 | 训练损失 1.4275 | 已用 28.2s | 剩余 14371.8s
+  [搜索] epoch 3 | 训练损失 0.6936 | 已用 28.6s | 剩余 14371.4s
+  [搜索] epoch 4 | 训练损失 0.2414 | 已用 29.1s | 剩余 14370.9s
+  [搜索] epoch 5 | 训练损失 0.1202 | 已用 29.5s | 剩余 14370.5s
+  [搜索] epoch 6 | 训练损失 0.1124 | 验证标准化 MSE 0.141135 | 已用 29.9s | 剩余 14370.1s
+[试验 12] 完成 | 验证标准化 MSE 0.141135 | 历史最佳标准化 MSE 0.097249 | 搜索已用 29.9s
+[搜索结束] trial_limit | 12 次试验 | 用时 29.9s
+[外层测试] 最佳配置 {'lr': 0.00015461063713132433, 'batch_size': 16, 'optimizer': 'adam'} | 用训练+验证数据重训，单独计时   
+  [重训] epoch 1 | 训练损失 1.5664 | 已用 0.9s
+  [重训] epoch 2 | 训练损失 0.3991 | 已用 1.6s
+  [重训] epoch 3 | 训练损失 0.1760 | 已用 2.3s
+  [重训] epoch 4 | 训练损失 0.1595 | 已用 3.0s
+  [重训] epoch 5 | 训练损失 0.0675 | 已用 3.7s
+  [重训] epoch 6 | 训练损失 0.0609 | 已用 4.4s
+  [重训] epoch 7 | 训练损失 0.0886 | 已用 5.1s
+  [重训] epoch 8 | 训练损失 0.0748 | 已用 5.8s
+  [重训] epoch 9 | 训练损失 0.0520 | 已用 6.5s
+  [重训] epoch 10 | 训练损失 0.0650 | 已用 7.2s
+  [重训] epoch 11 | 训练损失 0.0776 | 已用 7.9s
+  [重训] epoch 12 | 训练损失 0.0357 | 已用 8.6s
+  [重训] epoch 13 | 训练损失 0.1027 | 已用 9.3s
+  [重训] epoch 14 | 训练损失 0.0673 | 已用 10.0s
+  [重训] epoch 15 | 训练损失 0.0619 | 已用 10.7s
+  [重训] epoch 16 | 训练损失 0.0759 | 已用 11.5s
+  [重训] epoch 17 | 训练损失 0.0210 | 已用 12.2s
+  [重训] epoch 18 | 训练损失 0.0214 | 已用 13.0s
+  [重训] epoch 19 | 训练损失 0.0258 | 已用 13.7s
+  [重训] epoch 20 | 训练损失 0.0124 | 已用 14.5s
+  [重训] epoch 21 | 训练损失 0.0259 | 已用 15.2s
+  [重训] epoch 22 | 训练损失 0.0052 | 已用 16.0s
+  [重训] epoch 23 | 训练损失 0.0084 | 已用 16.8s
+  [重训] epoch 24 | 训练损失 0.0066 | 已用 17.5s
+  [重训] epoch 25 | 训练损失 0.0053 | 已用 18.2s
+  [重训] epoch 26 | 训练损失 0.0280 | 已用 19.0s
+  [重训] epoch 27 | 训练损失 0.0562 | 已用 19.7s
+  [重训] epoch 28 | 训练损失 0.0175 | 已用 20.5s
+  [重训] epoch 29 | 训练损失 0.0197 | 已用 21.3s
+  [重训] epoch 30 | 训练损失 0.0106 | 已用 21.9s
+[外层测试] 测试标准化 MSE 0.605776 | steering MAE 0.1030 | throttle MAE 0.0863 | brake MAE 0.1504 | speed MAE 6.1045
+报告 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_evolutionary_20261110_005144\report.json
+Anytime Performance Curve D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_evolutionary_20261110_005144\anytime.svg
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> Set-Location 'D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> 
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $python = 'C:\Users\Administrator\.conda\envs\EnNeuro\python.exe'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:CUDA_PATH = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6'
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> $env:PATH = "$env:CUDA_PATH\bin;$env:PATH"
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 -u demos/automl_car_cuda.py `
+>>   --data-dir data --strategy beyesian --seed 42 `
+>>   --trials 30 --budget-minutes 240 `
+>>   --epochs 6 --refit-epochs 30 `
+>>   --output "artifacts/car_beyesian_full_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+设备 NVIDIA GeForce RTX 4060 | CUDA CuPy | EnNeuro ResNet18 四目标回归
+数据目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\data
+训练/验证/测试 19,284/2,412/2,412 张 | 96×48
+搜索最多 30 组，每组 6 epoch | 最终重训 30 epoch，单独计时
+回归目标 steering, throttle, brake, speed
+搜索策略 beyesian | 搜索预算 14400.0s | 输出目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_full_20261110_005640
+[试验 1] 开始 | adam lr=0.001391 batch=32 | 剩余 14400.0s
+  [搜索] epoch 1 | 训练损失 0.6573 | 已用 129.5s | 剩余 14270.5s
+  [搜索] epoch 2 | 训练损失 0.4703 | 已用 244.1s | 剩余 14155.9s
+  [搜索] epoch 3 | 训练损失 0.4355 | 已用 360.3s | 剩余 14039.7s
+  [搜索] epoch 4 | 训练损失 0.3937 | 已用 474.7s | 剩余 13925.3s
+  [搜索] epoch 5 | 训练损失 0.3682 | 已用 589.4s | 剩余 13810.6s
+  [搜索] epoch 6 | 训练损失 0.3900 | 验证标准化 MSE 1.810763 | 已用 709.5s | 剩余 13690.5s
+[试验 1] 完成 | 验证标准化 MSE 1.810763 | 历史最佳标准化 MSE 1.810763 | 搜索已用 709.5s
+[试验 2] 开始 | sgd lr=0.001855 batch=16 | 剩余 13690.5s
+  [搜索] epoch 1 | 训练损失 0.6547 | 已用 830.1s | 剩余 13569.9s
+  [搜索] epoch 2 | 训练损失 0.4058 | 已用 950.4s | 剩余 13449.6s
+  [搜索] epoch 3 | 训练损失 0.3335 | 已用 1073.4s | 剩余 13326.6s
+  [搜索] epoch 4 | 训练损失 0.2826 | 已用 1193.7s | 剩余 13206.3s
+  [搜索] epoch 5 | 训练损失 0.2590 | 已用 1313.9s | 剩余 13086.1s
+  [搜索] epoch 6 | 训练损失 0.1720 | 验证标准化 MSE 1.951995 | 已用 1439.0s | 剩余 12961.0s
+[试验 2] 完成 | 验证标准化 MSE 1.951995 | 历史最佳标准化 MSE 1.810763 | 搜索已用 1439.0s
+[试验 3] 开始 | sgd lr=0.0001378 batch=32 | 剩余 12961.0s
+  [搜索] epoch 1 | 训练损失 0.7527 | 已用 1535.9s | 剩余 12864.1s
+  [搜索] epoch 2 | 训练损失 0.5102 | 已用 1632.2s | 剩余 12767.8s
+  [搜索] epoch 3 | 训练损失 0.4219 | 已用 1729.3s | 剩余 12670.7s
+  [搜索] epoch 4 | 训练损失 0.3606 | 已用 1826.4s | 剩余 12573.6s
+  [搜索] epoch 5 | 训练损失 0.3106 | 已用 1922.8s | 剩余 12477.2s
+  [搜索] epoch 6 | 训练损失 0.2663 | 验证标准化 MSE 1.991741 | 已用 2021.6s | 剩余 12378.4s
+[试验 3] 完成 | 验证标准化 MSE 1.991741 | 历史最佳标准化 MSE 1.810763 | 搜索已用 2021.6s
+[试验 4] 开始 | sgd lr=0.001331 batch=32 | 剩余 12378.4s
+  [搜索] epoch 1 | 训练损失 0.6242 | 已用 2119.5s | 剩余 12280.5s
+  [搜索] epoch 2 | 训练损失 0.3688 | 已用 2216.4s | 剩余 12183.6s
+  [搜索] epoch 3 | 训练损失 0.2993 | 已用 2312.8s | 剩余 12087.2s
+  [搜索] epoch 4 | 训练损失 0.2455 | 已用 2409.7s | 剩余 11990.3s
+  [搜索] epoch 5 | 训练损失 0.1895 | 已用 2507.7s | 剩余 11892.3s
+  [搜索] epoch 6 | 训练损失 0.1673 | 验证标准化 MSE 1.940916 | 已用 2606.8s | 剩余 11793.2s
+[试验 4] 完成 | 验证标准化 MSE 1.940916 | 历史最佳标准化 MSE 1.810763 | 搜索已用 2606.8s
+[试验 5] 开始 | adam lr=0.0001546 batch=32 | 剩余 11793.2s
+  [搜索] epoch 1 | 训练损失 0.5392 | 已用 2721.1s | 剩余 11678.9s
+  [搜索] epoch 2 | 训练损失 0.3685 | 已用 2837.7s | 剩余 11562.3s
+  [搜索] epoch 3 | 训练损失 0.2831 | 已用 2952.7s | 剩余 11447.3s
+  [搜索] epoch 4 | 训练损失 0.2471 | 已用 3066.8s | 剩余 11333.2s
+  [搜索] epoch 5 | 训练损失 0.1657 | 已用 3182.8s | 剩余 11217.2s
+  [搜索] epoch 6 | 训练损失 0.1604 | 验证标准化 MSE 1.857203 | 已用 3300.7s | 剩余 11099.3s
+[试验 5] 完成 | 验证标准化 MSE 1.857203 | 历史最佳标准化 MSE 1.810763 | 搜索已用 3300.7s
+[试验 6] 开始 | adam lr=0.00242 batch=32 | 剩余 11099.3s
+  [搜索] epoch 1 | 训练损失 0.7514 | 已用 3415.2s | 剩余 10984.8s
+  [搜索] epoch 2 | 训练损失 0.5021 | 已用 3531.1s | 剩余 10868.9s
+  [搜索] epoch 3 | 训练损失 0.4583 | 已用 3646.6s | 剩余 10753.4s
+  [搜索] epoch 4 | 训练损失 0.4220 | 已用 3761.7s | 剩余 10638.3s
+  [搜索] epoch 5 | 训练损失 0.3982 | 已用 3877.7s | 剩余 10522.3s
+  [搜索] epoch 6 | 训练损失 0.4161 | 验证标准化 MSE 1.760744 | 已用 3996.0s | 剩余 10404.0s
+[试验 6] 完成 | 验证标准化 MSE 1.760744 | 历史最佳标准化 MSE 1.760744 | 搜索已用 3996.0s
+[试验 7] 开始 | adam lr=0.002803 batch=32 | 剩余 10404.0s
+  [搜索] epoch 1 | 训练损失 0.7727 | 已用 4110.5s | 剩余 10289.5s
+  [搜索] epoch 2 | 训练损失 0.5100 | 已用 4226.0s | 剩余 10174.0s
+  [搜索] epoch 3 | 训练损失 0.4566 | 已用 4341.9s | 剩余 10058.1s
+  [搜索] epoch 4 | 训练损失 0.4254 | 已用 4456.4s | 剩余 9943.6s
+  [搜索] epoch 5 | 训练损失 0.4041 | 已用 4571.4s | 剩余 9828.6s
+  [搜索] epoch 6 | 训练损失 0.4107 | 验证标准化 MSE 1.789741 | 已用 4690.0s | 剩余 9710.0s
+[试验 7] 完成 | 验证标准化 MSE 1.789741 | 历史最佳标准化 MSE 1.760744 | 搜索已用 4690.0s
+[试验 8] 开始 | adam lr=0.0001037 batch=32 | 剩余 9710.0s
+  [搜索] epoch 1 | 训练损失 0.5287 | 已用 4804.9s | 剩余 9595.1s
+  [搜索] epoch 2 | 训练损失 0.3521 | 已用 4919.0s | 剩余 9481.0s
+  [搜索] epoch 3 | 训练损失 0.2646 | 已用 5035.7s | 剩余 9364.3s
+  [搜索] epoch 4 | 训练损失 0.1980 | 已用 5150.3s | 剩余 9249.7s
+  [搜索] epoch 5 | 训练损失 0.1921 | 已用 5264.6s | 剩余 9135.4s
+  [搜索] epoch 6 | 训练损失 0.1014 | 验证标准化 MSE 1.898869 | 已用 5383.6s | 剩余 9016.4s
+[试验 8] 完成 | 验证标准化 MSE 1.898869 | 历史最佳标准化 MSE 1.760744 | 搜索已用 5383.6s
+[试验 9] 开始 | adam lr=0.002107 batch=32 | 剩余 9016.3s
+  [搜索] epoch 1 | 训练损失 0.7189 | 已用 5498.4s | 剩余 8901.6s
+  [搜索] epoch 2 | 训练损失 0.4971 | 已用 5612.9s | 剩余 8787.1s
+  [搜索] epoch 3 | 训练损失 0.4281 | 已用 5729.6s | 剩余 8670.4s
+  [搜索] epoch 4 | 训练损失 0.3998 | 已用 5844.1s | 剩余 8555.9s
+  [搜索] epoch 5 | 训练损失 0.3744 | 已用 5958.2s | 剩余 8441.8s
+  [搜索] epoch 6 | 训练损失 0.4181 | 验证标准化 MSE 1.754769 | 已用 6077.5s | 剩余 8322.5s
+[试验 9] 完成 | 验证标准化 MSE 1.754769 | 历史最佳标准化 MSE 1.754769 | 搜索已用 6077.5s
+[试验 10] 开始 | adam lr=0.001947 batch=16 | 剩余 8322.5s
+  [搜索] epoch 1 | 训练损失 0.6822 | 已用 6234.2s | 剩余 8165.8s
+  [搜索] epoch 2 | 训练损失 0.4918 | 已用 6391.8s | 剩余 8008.2s
+  [搜索] epoch 3 | 训练损失 0.4540 | 已用 6549.4s | 剩余 7850.6s
+  [搜索] epoch 4 | 训练损失 0.4233 | 已用 6705.0s | 剩余 7695.0s
+  [搜索] epoch 5 | 训练损失 0.4101 | 已用 6864.2s | 剩余 7535.8s
+  [搜索] epoch 6 | 训练损失 0.3774 | 验证标准化 MSE 1.820688 | 已用 7022.2s | 剩余 7377.8s
+[试验 10] 完成 | 验证标准化 MSE 1.820688 | 历史最佳标准化 MSE 1.754769 | 搜索已用 7022.2s
+[试验 11] 开始 | adam lr=0.0001269 batch=16 | 剩余 7377.7s
+  [搜索] epoch 1 | 训练损失 0.5356 | 已用 7181.6s | 剩余 7218.4s
+  [搜索] epoch 2 | 训练损失 0.3808 | 已用 7337.7s | 剩余 7062.3s
+  [搜索] epoch 3 | 训练损失 0.2966 | 已用 7496.8s | 剩余 6903.2s
+  [搜索] epoch 4 | 训练损失 0.2738 | 已用 7654.5s | 剩余 6745.5s
+  [搜索] epoch 5 | 训练损失 0.2463 | 已用 7811.1s | 剩余 6588.9s
+  [搜索] epoch 6 | 训练损失 0.1187 | 验证标准化 MSE 1.867418 | 已用 7971.8s | 剩余 6428.2s
+[试验 11] 完成 | 验证标准化 MSE 1.867418 | 历史最佳标准化 MSE 1.754769 | 搜索已用 7971.8s
+[试验 12] 开始 | sgd lr=0.0001097 batch=16 | 剩余 6428.2s
+  [搜索] epoch 1 | 训练损失 0.7031 | 已用 8091.8s | 剩余 6308.2s
+  [搜索] epoch 2 | 训练损失 0.4721 | 已用 8213.2s | 剩余 6186.8s
+  [搜索] epoch 3 | 训练损失 0.3850 | 已用 8334.7s | 剩余 6065.3s
+  [搜索] epoch 4 | 训练损失 0.3263 | 已用 8454.9s | 剩余 5945.1s
+  [搜索] epoch 5 | 训练损失 0.2786 | 已用 8576.7s | 剩余 5823.3s
+  [搜索] epoch 6 | 训练损失 0.2383 | 验证标准化 MSE 1.956523 | 已用 8700.5s | 剩余 5699.5s
+[试验 12] 完成 | 验证标准化 MSE 1.956523 | 历史最佳标准化 MSE 1.754769 | 搜索已用 8700.5s
+[试验 13] 开始 | adam lr=0.0006581 batch=16 | 剩余 5699.5s
+  [搜索] epoch 1 | 训练损失 0.5952 | 已用 8856.0s | 剩余 5544.0s
+  [搜索] epoch 2 | 训练损失 0.4385 | 已用 9015.5s | 剩余 5384.5s
+  [搜索] epoch 3 | 训练损失 0.3876 | 已用 9171.1s | 剩余 5228.9s
+  [搜索] epoch 4 | 训练损失 0.3686 | 已用 9330.1s | 剩余 5069.9s
+  [搜索] epoch 5 | 训练损失 0.3380 | 已用 9486.1s | 剩余 4913.9s
+  [搜索] epoch 6 | 训练损失 0.3017 | 验证标准化 MSE 1.854259 | 已用 9646.7s | 剩余 4753.3s
+[试验 13] 完成 | 验证标准化 MSE 1.854259 | 历史最佳标准化 MSE 1.754769 | 搜索已用 9646.7s
+[试验 14] 开始 | sgd lr=0.0004225 batch=16 | 剩余 4753.3s
+  [搜索] epoch 1 | 训练损失 0.5893 | 已用 9768.0s | 剩余 4632.0s
+  [搜索] epoch 2 | 训练损失 0.3653 | 已用 9888.3s | 剩余 4511.7s
+  [搜索] epoch 3 | 训练损失 0.2972 | 已用 10009.9s | 剩余 4390.1s
+  [搜索] epoch 4 | 训练损失 0.2409 | 已用 10131.3s | 剩余 4268.7s
+  [搜索] epoch 5 | 训练损失 0.1848 | 已用 10251.5s | 剩余 4148.5s
+  [搜索] epoch 6 | 训练损失 0.1425 | 验证标准化 MSE 2.112875 | 已用 10375.8s | 剩余 4024.2s
+[试验 14] 完成 | 验证标准化 MSE 2.112875 | 历史最佳标准化 MSE 1.754769 | 搜索已用 10375.8s
+[试验 15] 开始 | sgd lr=0.002601 batch=32 | 剩余 4024.2s
+  [搜索] epoch 1 | 训练损失 1.0286 | 已用 10473.1s | 剩余 3926.9s
+  [搜索] epoch 2 | 训练损失 0.4041 | 已用 10569.8s | 剩余 3830.2s
+  [搜索] epoch 3 | 训练损失 0.3485 | 已用 10666.2s | 剩余 3733.8s
+  [搜索] epoch 4 | 训练损失 0.2965 | 已用 10764.1s | 剩余 3635.9s
+  [搜索] epoch 5 | 训练损失 0.2802 | 已用 10860.7s | 剩余 3539.3s
+  [搜索] epoch 6 | 训练损失 0.2218 | 验证标准化 MSE 1.980821 | 已用 10959.4s | 剩余 3440.6s
+[试验 15] 完成 | 验证标准化 MSE 1.980821 | 历史最佳标准化 MSE 1.754769 | 搜索已用 10959.4s
+[试验 16] 开始 | adam lr=0.0021 batch=32 | 剩余 3440.6s
+  [搜索] epoch 1 | 训练损失 0.7204 | 已用 11075.9s | 剩余 3324.1s
+  [搜索] epoch 2 | 训练损失 0.4845 | 已用 11192.1s | 剩余 3207.9s
+  [搜索] epoch 3 | 训练损失 0.4826 | 已用 11306.5s | 剩余 3093.5s
+  [搜索] epoch 4 | 训练损失 0.4269 | 已用 11421.9s | 剩余 2978.1s
+  [搜索] epoch 5 | 训练损失 0.3991 | 已用 11537.9s | 剩余 2862.1s
+  [搜索] epoch 6 | 训练损失 0.4042 | 验证标准化 MSE 1.783463 | 已用 11654.9s | 剩余 2745.1s
+[试验 16] 完成 | 验证标准化 MSE 1.783463 | 历史最佳标准化 MSE 1.754769 | 搜索已用 11654.9s
+[试验 17] 开始 | adam lr=0.002751 batch=16 | 剩余 2745.0s
+  [搜索] epoch 1 | 训练损失 0.7345 | 已用 11813.0s | 剩余 2587.0s
+  [搜索] epoch 2 | 训练损失 0.5162 | 已用 11970.5s | 剩余 2429.5s
+  [搜索] epoch 3 | 训练损失 0.4749 | 已用 12126.4s | 剩余 2273.6s
+  [搜索] epoch 4 | 训练损失 0.4411 | 已用 12285.0s | 剩余 2115.0s
+  [搜索] epoch 5 | 训练损失 0.4158 | 已用 12440.2s | 剩余 1959.8s
+  [搜索] epoch 6 | 训练损失 0.3844 | 验证标准化 MSE 1.742720 | 已用 12601.9s | 剩余 1798.1s
+[试验 17] 完成 | 验证标准化 MSE 1.742720 | 历史最佳标准化 MSE 1.742720 | 搜索已用 12601.9s
+[试验 18] 开始 | adam lr=0.00296 batch=16 | 剩余 1798.1s
+  [搜索] epoch 1 | 训练损失 0.7549 | 已用 12757.6s | 剩余 1642.4s
+  [搜索] epoch 2 | 训练损失 0.5179 | 已用 12916.1s | 剩余 1483.9s
+  [搜索] epoch 3 | 训练损失 0.4775 | 已用 13072.3s | 剩余 1327.7s
+  [搜索] epoch 4 | 训练损失 0.4655 | 已用 13230.2s | 剩余 1169.8s
+  [搜索] epoch 5 | 训练损失 0.4073 | 已用 13388.5s | 剩余 1011.5s
+  [搜索] epoch 6 | 训练损失 0.3820 | 验证标准化 MSE 1.834239 | 已用 13546.4s | 剩余 853.6s
+[试验 18] 完成 | 验证标准化 MSE 1.834239 | 历史最佳标准化 MSE 1.742720 | 搜索已用 13546.4s
+[试验 19] 开始 | adam lr=0.000295 batch=16 | 剩余 853.6s
+  [搜索] epoch 1 | 训练损失 0.5541 | 已用 13704.6s | 剩余 695.4s
+  [搜索] epoch 2 | 训练损失 0.4107 | 已用 13859.9s | 剩余 540.1s
+  [搜索] epoch 3 | 训练损失 0.3427 | 已用 14019.4s | 剩余 380.6s
+  [搜索] epoch 4 | 训练损失 0.3060 | 已用 14175.1s | 剩余 224.9s
+  [搜索] epoch 5 | 训练损失 0.2838 | 已用 14332.9s | 剩余 67.1s
+[试验 19] timed_out | 试验完成验证前已达到搜索时限
+[搜索结束] time_budget | 19 次试验 | 用时 14400.1s
+[外层测试] 最佳配置 {'lr': 0.0027507807793601623, 'batch_size': 16, 'optimizer': 'adam'} | 用训练+验证数据重训，单独计时    
+  [重训] epoch 1 | 训练损失 0.7657 | 已用 174.7s
+  [重训] epoch 2 | 训练损失 0.5558 | 已用 353.0s
+  [重训] epoch 3 | 训练损失 0.4995 | 已用 527.8s
+  [重训] epoch 4 | 训练损失 0.4599 | 已用 705.2s
+  [重训] epoch 5 | 训练损失 0.4616 | 已用 879.0s
+  [重训] epoch 6 | 训练损失 0.4438 | 已用 1056.8s
+  [重训] epoch 7 | 训练损失 0.4260 | 已用 1231.0s
+  [重训] epoch 8 | 训练损失 0.4004 | 已用 1408.0s
+  [重训] epoch 9 | 训练损失 0.3384 | 已用 1582.7s
+  [重训] epoch 10 | 训练损失 0.3202 | 已用 1759.4s
+  [重训] epoch 11 | 训练损失 0.3076 | 已用 1933.8s
+  [重训] epoch 12 | 训练损失 0.2885 | 已用 2110.2s
+  [重训] epoch 13 | 训练损失 0.2982 | 已用 2285.1s
+  [重训] epoch 14 | 训练损失 0.2393 | 已用 2461.4s
+  [重训] epoch 15 | 训练损失 0.2332 | 已用 2636.9s
+  [重训] epoch 16 | 训练损失 0.1926 | 已用 2812.7s
+  [重训] epoch 17 | 训练损失 0.1907 | 已用 2988.0s
+  [重训] epoch 18 | 训练损失 0.1906 | 已用 3164.5s
+  [重训] epoch 19 | 训练损失 0.1851 | 已用 3340.0s
+  [重训] epoch 20 | 训练损失 0.1276 | 已用 3515.6s
+  [重训] epoch 21 | 训练损失 0.1125 | 已用 3691.6s
+  [重训] epoch 22 | 训练损失 0.1544 | 已用 3867.4s
+  [重训] epoch 23 | 训练损失 0.1281 | 已用 4044.0s
+  [重训] epoch 24 | 训练损失 0.1309 | 已用 4221.5s
+  [重训] epoch 25 | 训练损失 0.1845 | 已用 4397.7s
+  [重训] epoch 26 | 训练损失 0.1011 | 已用 4572.7s
+  [重训] epoch 27 | 训练损失 0.0931 | 已用 4750.0s
+  [重训] epoch 28 | 训练损失 0.1270 | 已用 4924.6s
+  [重训] epoch 29 | 训练损失 0.0900 | 已用 5102.5s
+  [重训] epoch 30 | 训练损失 0.1410 | 已用 5276.6s
+[外层测试] 测试标准化 MSE 3.693315 | steering MAE 0.0799 | throttle MAE 0.2705 | brake MAE 0.0110 | speed MAE 5.1820
+报告 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_full_20261110_005640\report.json
+Anytime Performance Curve D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\car_beyesian_full_20261110_005640\anytime.svg
+(EnNeuro) PS D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent> & $python -X utf8 -u demos/automl_donkeycar_cuda.py `
+>>   --data-dir '../../tests/test_donkey/data' --strategy beyesian --seed 42 `
+>>   --trials 30 --budget-minutes 300 `
+>>   --epochs 6 --refit-epochs 60 `
+>>   --output "artifacts/donkeycar_beyesian_full_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+设备 NVIDIA GeForce RTX 4060 | CUDA CuPy | EnNeuro ResNet18 单目标转向角回归
+数据目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\tests\test_donkey\data
+训练/验证/测试 4,341/929/930 张 | 160×120
+搜索最多 30 组，每组 6 epoch | 最终重训 60 epoch，单独计时
+搜索策略 beyesian | 搜索预算 18000.0s | 输出目录 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\donkeycar_beyesian_full_20261110_102326
+[试验 1] 开始 | adam lr=0.001391 batch=32 | 剩余 18000.0s
+  [搜索] epoch 1 | 训练损失 0.7523 | 已用 93.4s | 剩余 17906.6s
+  [搜索] epoch 2 | 训练损失 0.0121 | 已用 176.0s | 剩余 17824.0s
+  [搜索] epoch 3 | 训练损失 0.0115 | 已用 259.2s | 剩余 17740.8s
+  [搜索] epoch 4 | 训练损失 0.0103 | 已用 342.3s | 剩余 17657.7s
+  [搜索] epoch 5 | 训练损失 0.0093 | 已用 423.5s | 剩余 17576.5s
+  [搜索] epoch 6 | 训练损失 0.0078 | 验证转向角 MSE 0.021128 | 已用 507.1s | 剩余 17492.9s
+[试验 1] 完成 | 验证转向角 MSE 0.021128 | 历史最佳转向角 MSE 0.021128 | 搜索已用 507.1s
+[试验 2] 开始 | sgd lr=0.001855 batch=16 | 剩余 17492.9s
+  [搜索] epoch 1 | 训练损失 1.4491 | 已用 584.4s | 剩余 17415.6s
+  [搜索] epoch 2 | 训练损失 0.0134 | 已用 661.3s | 剩余 17338.7s
+  [搜索] epoch 3 | 训练损失 0.0098 | 已用 738.3s | 剩余 17261.7s
+  [搜索] epoch 4 | 训练损失 0.0084 | 已用 815.5s | 剩余 17184.5s
+  [搜索] epoch 5 | 训练损失 0.0066 | 已用 892.6s | 剩余 17107.4s
+  [搜索] epoch 6 | 训练损失 0.0056 | 验证转向角 MSE 0.003302 | 已用 973.0s | 剩余 17027.0s
+[试验 2] 完成 | 验证转向角 MSE 0.003302 | 历史最佳转向角 MSE 0.003302 | 搜索已用 973.0s
+[试验 3] 开始 | sgd lr=0.0001378 batch=32 | 剩余 17027.0s
+  [搜索] epoch 1 | 训练损失 0.1215 | 已用 1050.5s | 剩余 16949.5s
+  [搜索] epoch 2 | 训练损失 0.0322 | 已用 1127.1s | 剩余 16872.9s
+  [搜索] epoch 3 | 训练损失 0.0275 | 已用 1203.7s | 剩余 16796.3s
+  [搜索] epoch 4 | 训练损失 0.0245 | 已用 1280.4s | 剩余 16719.6s
+  [搜索] epoch 5 | 训练损失 0.0230 | 已用 1357.7s | 剩余 16642.3s
+  [搜索] epoch 6 | 训练损失 0.0214 | 验证转向角 MSE 0.009764 | 已用 1436.8s | 剩余 16563.2s
+[试验 3] 完成 | 验证转向角 MSE 0.009764 | 历史最佳转向角 MSE 0.003302 | 搜索已用 1436.8s
+[试验 4] 开始 | sgd lr=0.001331 batch=32 | 剩余 16563.2s
+  [搜索] epoch 1 | 训练损失 0.9216 | 已用 1515.7s | 剩余 16484.3s
+  [搜索] epoch 2 | 训练损失 0.0191 | 已用 1595.3s | 剩余 16404.7s
+  [搜索] epoch 3 | 训练损失 0.0144 | 已用 1675.4s | 剩余 16324.6s
+  [搜索] epoch 4 | 训练损失 0.0113 | 已用 1752.2s | 剩余 16247.8s
+  [搜索] epoch 5 | 训练损失 0.0103 | 已用 1828.8s | 剩余 16171.2s
+  [搜索] epoch 6 | 训练损失 0.0075 | 验证转向角 MSE 0.006661 | 已用 1907.4s | 剩余 16092.6s
+[试验 4] 完成 | 验证转向角 MSE 0.006661 | 历史最佳转向角 MSE 0.003302 | 搜索已用 1907.4s
+[试验 5] 开始 | adam lr=0.0001546 batch=32 | 剩余 16092.6s
+  [搜索] epoch 1 | 训练损失 0.1049 | 已用 1988.7s | 剩余 16011.3s
+  [搜索] epoch 2 | 训练损失 0.0170 | 已用 2069.7s | 剩余 15930.3s
+  [搜索] epoch 3 | 训练损失 0.0105 | 已用 2151.1s | 剩余 15848.9s
+  [搜索] epoch 4 | 训练损失 0.0107 | 已用 2232.7s | 剩余 15767.3s
+  [搜索] epoch 5 | 训练损失 0.0064 | 已用 2314.5s | 剩余 15685.5s
+  [搜索] epoch 6 | 训练损失 0.0083 | 验证转向角 MSE 0.007771 | 已用 2397.1s | 剩余 15602.9s
+[试验 5] 完成 | 验证转向角 MSE 0.007771 | 历史最佳转向角 MSE 0.003302 | 搜索已用 2397.1s
+[试验 6] 开始 | sgd lr=0.0002603 batch=16 | 剩余 15602.9s
+  [搜索] epoch 1 | 训练损失 0.0610 | 已用 2473.9s | 剩余 15526.1s
+  [搜索] epoch 2 | 训练损失 0.0253 | 已用 2550.3s | 剩余 15449.7s
+  [搜索] epoch 3 | 训练损失 0.0205 | 已用 2626.8s | 剩余 15373.2s
+  [搜索] epoch 4 | 训练损失 0.0179 | 已用 2703.4s | 剩余 15296.6s
+  [搜索] epoch 5 | 训练损失 0.0164 | 已用 2780.0s | 剩余 15220.0s
+  [搜索] epoch 6 | 训练损失 0.0147 | 验证转向角 MSE 0.007934 | 已用 2858.6s | 剩余 15141.4s
+[试验 6] 完成 | 验证转向角 MSE 0.007934 | 历史最佳转向角 MSE 0.003302 | 搜索已用 2858.6s
+[试验 7] 开始 | sgd lr=0.00297 batch=16 | 剩余 15141.3s
+  [搜索] epoch 1 | 训练损失 7.2668 | 已用 2935.3s | 剩余 15064.7s
+  [搜索] epoch 2 | 训练损失 0.0138 | 已用 3011.9s | 剩余 14988.1s
+  [搜索] epoch 3 | 训练损失 0.0108 | 已用 3088.4s | 剩余 14911.6s
+  [搜索] epoch 4 | 训练损失 0.0096 | 已用 3164.9s | 剩余 14835.1s
+  [搜索] epoch 5 | 训练损失 0.0084 | 已用 3241.4s | 剩余 14758.6s
+  [搜索] epoch 6 | 训练损失 0.0076 | 验证转向角 MSE 0.002468 | 已用 3319.9s | 剩余 14680.1s
+[试验 7] 完成 | 验证转向角 MSE 0.002468 | 历史最佳转向角 MSE 0.002468 | 搜索已用 3319.9s
+[试验 8] 开始 | adam lr=0.0001006 batch=16 | 剩余 14680.1s
+  [搜索] epoch 1 | 训练损失 0.0799 | 已用 3405.5s | 剩余 14594.5s
+  [搜索] epoch 2 | 训练损失 0.0180 | 已用 3490.6s | 剩余 14509.4s
+  [搜索] epoch 3 | 训练损失 0.0099 | 已用 3587.8s | 剩余 14412.2s
+  [搜索] epoch 4 | 训练损失 0.0103 | 已用 3701.9s | 剩余 14298.1s
+  [搜索] epoch 5 | 训练损失 0.0138 | 已用 3816.4s | 剩余 14183.6s
+  [搜索] epoch 6 | 训练损失 0.0057 | 验证转向角 MSE 0.009861 | 已用 3928.6s | 剩余 14071.4s
+[试验 8] 完成 | 验证转向角 MSE 0.009861 | 历史最佳转向角 MSE 0.002468 | 搜索已用 3928.6s
+[试验 9] 开始 | adam lr=0.002933 batch=16 | 剩余 14071.4s
+  [搜索] epoch 1 | 训练损失 0.9767 | 已用 4039.0s | 剩余 13961.0s
+  [搜索] epoch 2 | 训练损失 0.0159 | 已用 4148.8s | 剩余 13851.2s
+  [搜索] epoch 3 | 训练损失 0.0149 | 已用 4258.8s | 剩余 13741.2s
+  [搜索] epoch 4 | 训练损失 0.0167 | 已用 4370.5s | 剩余 13629.5s
+  [搜索] epoch 5 | 训练损失 0.0122 | 已用 4481.7s | 剩余 13518.3s
+  [搜索] epoch 6 | 训练损失 0.0093 | 验证转向角 MSE 0.007408 | 已用 4596.7s | 剩余 13403.3s
+[试验 9] 完成 | 验证转向角 MSE 0.007408 | 历史最佳转向角 MSE 0.002468 | 搜索已用 4596.7s
+[试验 10] 开始 | sgd lr=0.002994 batch=16 | 剩余 13403.3s
+  [搜索] epoch 1 | 训练损失 7.3642 | 已用 4688.0s | 剩余 13312.0s
+  [搜索] epoch 2 | 训练损失 0.0173 | 已用 4778.4s | 剩余 13221.6s
+  [搜索] epoch 3 | 训练损失 0.0140 | 已用 4866.4s | 剩余 13133.6s
+  [搜索] epoch 4 | 训练损失 0.0122 | 已用 4954.2s | 剩余 13045.8s
+  [搜索] epoch 5 | 训练损失 0.0113 | 已用 5042.6s | 剩余 12957.4s
+  [搜索] epoch 6 | 训练损失 0.0104 | 验证转向角 MSE 0.002248 | 已用 5134.2s | 剩余 12865.8s
+[试验 10] 完成 | 验证转向角 MSE 0.002248 | 历史最佳转向角 MSE 0.002248 | 搜索已用 5134.2s
+[试验 11] 开始 | sgd lr=0.002823 batch=32 | 剩余 12865.8s
+  [搜索] epoch 1 | 训练损失 12.2485 | 已用 5217.2s | 剩余 12782.8s
+  [搜索] epoch 2 | 训练损失 0.0160 | 已用 5298.9s | 剩余 12701.1s
+  [搜索] epoch 3 | 训练损失 0.0127 | 已用 5381.7s | 剩余 12618.3s
+  [搜索] epoch 4 | 训练损失 0.0115 | 已用 5462.4s | 剩余 12537.6s
+  [搜索] epoch 5 | 训练损失 0.0107 | 已用 5541.6s | 剩余 12458.4s
+  [搜索] epoch 6 | 训练损失 0.0096 | 验证转向角 MSE 0.002780 | 已用 5623.4s | 剩余 12376.6s
+[试验 11] 完成 | 验证转向角 MSE 0.002780 | 历史最佳转向角 MSE 0.002248 | 搜索已用 5623.4s
+[试验 12] 开始 | adam lr=0.0006922 batch=16 | 剩余 12376.6s
+  [搜索] epoch 1 | 训练损失 0.1944 | 已用 5734.3s | 剩余 12265.7s
+  [搜索] epoch 2 | 训练损失 0.0188 | 已用 5844.7s | 剩余 12155.3s
+  [搜索] epoch 3 | 训练损失 0.0109 | 已用 5953.8s | 剩余 12046.2s
+  [搜索] epoch 4 | 训练损失 0.0086 | 已用 6062.5s | 剩余 11937.5s
+  [搜索] epoch 5 | 训练损失 0.0068 | 已用 6171.7s | 剩余 11828.3s
+  [搜索] epoch 6 | 训练损失 0.0046 | 验证转向角 MSE 0.009112 | 已用 6283.3s | 剩余 11716.7s
+[试验 12] 完成 | 验证转向角 MSE 0.009112 | 历史最佳转向角 MSE 0.002248 | 搜索已用 6283.3s
+[试验 13] 开始 | adam lr=0.0001002 batch=32 | 剩余 11716.7s
+  [搜索] epoch 1 | 训练损失 0.1101 | 已用 6373.2s | 剩余 11626.8s
+  [搜索] epoch 2 | 训练损失 0.0178 | 已用 6462.2s | 剩余 11537.8s
+  [搜索] epoch 3 | 训练损失 0.0128 | 已用 6551.3s | 剩余 11448.7s
+  [搜索] epoch 4 | 训练损失 0.0072 | 已用 6641.0s | 剩余 11359.0s
+  [搜索] epoch 5 | 训练损失 0.0051 | 已用 6730.1s | 剩余 11269.9s
+  [搜索] epoch 6 | 训练损失 0.0095 | 验证转向角 MSE 0.007593 | 已用 6822.5s | 剩余 11177.5s
+[试验 13] 完成 | 验证转向角 MSE 0.007593 | 历史最佳转向角 MSE 0.002248 | 搜索已用 6822.5s
+[试验 14] 开始 | sgd lr=0.0001049 batch=16 | 剩余 11177.5s
+  [搜索] epoch 1 | 训练损失 0.0911 | 已用 6910.7s | 剩余 11089.3s
+  [搜索] epoch 2 | 训练损失 0.0305 | 已用 6997.9s | 剩余 11002.1s
+  [搜索] epoch 3 | 训练损失 0.0258 | 已用 7085.0s | 剩余 10915.0s
+  [搜索] epoch 4 | 训练损失 0.0232 | 已用 7172.5s | 剩余 10827.5s
+  [搜索] epoch 5 | 训练损失 0.0219 | 已用 7259.8s | 剩余 10740.2s
+  [搜索] epoch 6 | 训练损失 0.0204 | 验证转向角 MSE 0.009209 | 已用 7350.1s | 剩余 10649.9s
+[试验 14] 完成 | 验证转向角 MSE 0.009209 | 历史最佳转向角 MSE 0.002248 | 搜索已用 7350.1s
+[试验 15] 开始 | sgd lr=0.0003561 batch=32 | 剩余 10649.8s
+  [搜索] epoch 1 | 训练损失 0.0800 | 已用 7429.2s | 剩余 10570.8s
+  [搜索] epoch 2 | 训练损失 0.0259 | 已用 7507.6s | 剩余 10492.4s
+  [搜索] epoch 3 | 训练损失 0.0215 | 已用 7585.8s | 剩余 10414.2s
+  [搜索] epoch 4 | 训练损失 0.0185 | 已用 7664.4s | 剩余 10335.6s
+  [搜索] epoch 5 | 训练损失 0.0172 | 已用 7742.6s | 剩余 10257.4s
+  [搜索] epoch 6 | 训练损失 0.0152 | 验证转向角 MSE 0.008323 | 已用 7823.4s | 剩余 10176.6s
+[试验 15] 完成 | 验证转向角 MSE 0.008323 | 历史最佳转向角 MSE 0.002248 | 搜索已用 7823.4s
+[试验 16] 开始 | adam lr=0.0002515 batch=16 | 剩余 10176.6s
+  [搜索] epoch 1 | 训练损失 0.0921 | 已用 7933.6s | 剩余 10066.4s
+  [搜索] epoch 2 | 训练损失 0.0140 | 已用 8042.9s | 剩余 9957.1s
+  [搜索] epoch 3 | 训练损失 0.0110 | 已用 8152.3s | 剩余 9847.7s
+  [搜索] epoch 4 | 训练损失 0.0095 | 已用 8261.6s | 剩余 9738.4s
+  [搜索] epoch 5 | 训练损失 0.0073 | 已用 8371.2s | 剩余 9628.8s
+  [搜索] epoch 6 | 训练损失 0.0030 | 验证转向角 MSE 0.013194 | 已用 8482.9s | 剩余 9517.1s
+[试验 16] 完成 | 验证转向角 MSE 0.013194 | 历史最佳转向角 MSE 0.002248 | 搜索已用 8482.9s
+[试验 17] 开始 | adam lr=0.002994 batch=32 | 剩余 9517.1s
+  [搜索] epoch 1 | 训练损失 1.6718 | 已用 8572.7s | 剩余 9427.3s
+  [搜索] epoch 2 | 训练损失 0.0231 | 已用 8662.0s | 剩余 9338.0s
+  [搜索] epoch 3 | 训练损失 0.0168 | 已用 8751.3s | 剩余 9248.7s
+  [搜索] epoch 4 | 训练损失 0.0130 | 已用 8840.8s | 剩余 9159.2s
+  [搜索] epoch 5 | 训练损失 0.0128 | 已用 8930.1s | 剩余 9069.9s
+  [搜索] epoch 6 | 训练损失 0.0132 | 验证转向角 MSE 0.011004 | 已用 9021.7s | 剩余 8978.3s
+[试验 17] 完成 | 验证转向角 MSE 0.011004 | 历史最佳转向角 MSE 0.002248 | 搜索已用 9021.7s
+[试验 18] 开始 | sgd lr=0.0009416 batch=16 | 剩余 8978.3s
+  [搜索] epoch 1 | 训练损失 0.1172 | 已用 9109.5s | 剩余 8890.5s
+  [搜索] epoch 2 | 训练损失 0.0252 | 已用 9197.0s | 剩余 8803.0s
+  [搜索] epoch 3 | 训练损失 0.0177 | 已用 9284.4s | 剩余 8715.6s
+  [搜索] epoch 4 | 训练损失 0.0162 | 已用 9371.6s | 剩余 8628.4s
+  [搜索] epoch 5 | 训练损失 0.0128 | 已用 9459.0s | 剩余 8541.0s
+  [搜索] epoch 6 | 训练损失 0.0111 | 验证转向角 MSE 0.006606 | 已用 9549.0s | 剩余 8451.0s
+[试验 18] 完成 | 验证转向角 MSE 0.006606 | 历史最佳转向角 MSE 0.002248 | 搜索已用 9549.0s
+[试验 19] 开始 | sgd lr=0.002879 batch=16 | 剩余 8451.0s
+  [搜索] epoch 1 | 训练损失 6.6527 | 已用 9636.5s | 剩余 8363.5s
+  [搜索] epoch 2 | 训练损失 0.0163 | 已用 9723.7s | 剩余 8276.3s
+  [搜索] epoch 3 | 训练损失 0.0125 | 已用 9811.2s | 剩余 8188.8s
+  [搜索] epoch 4 | 训练损失 0.0114 | 已用 9898.4s | 剩余 8101.6s
+  [搜索] epoch 5 | 训练损失 0.0101 | 已用 9986.6s | 剩余 8013.4s
+  [搜索] epoch 6 | 训练损失 0.0089 | 验证转向角 MSE 0.001860 | 已用 10076.0s | 剩余 7924.0s
+[试验 19] 完成 | 验证转向角 MSE 0.001860 | 历史最佳转向角 MSE 0.001860 | 搜索已用 10076.0s
+[试验 20] 开始 | sgd lr=0.0001163 batch=16 | 剩余 7924.0s
+  [搜索] epoch 1 | 训练损失 0.0862 | 已用 10163.5s | 剩余 7836.5s
+  [搜索] epoch 2 | 训练损失 0.0298 | 已用 10250.5s | 剩余 7749.5s
+  [搜索] epoch 3 | 训练损失 0.0251 | 已用 10338.2s | 剩余 7661.8s
+  [搜索] epoch 4 | 训练损失 0.0226 | 已用 10425.5s | 剩余 7574.5s
+  [搜索] epoch 5 | 训练损失 0.0213 | 已用 10513.1s | 剩余 7486.9s
+  [搜索] epoch 6 | 训练损失 0.0197 | 验证转向角 MSE 0.009125 | 已用 10602.9s | 剩余 7397.1s
+[试验 20] 完成 | 验证转向角 MSE 0.009125 | 历史最佳转向角 MSE 0.001860 | 搜索已用 10602.9s
+[试验 21] 开始 | adam lr=0.000423 batch=32 | 剩余 7397.1s
+  [搜索] epoch 1 | 训练损失 0.2205 | 已用 10693.0s | 剩余 7307.0s
+  [搜索] epoch 2 | 训练损失 0.0132 | 已用 10782.4s | 剩余 7217.6s
+  [搜索] epoch 3 | 训练损失 0.0082 | 已用 10871.6s | 剩余 7128.4s
+  [搜索] epoch 4 | 训练损失 0.0086 | 已用 10961.2s | 剩余 7038.8s
+  [搜索] epoch 5 | 训练损失 0.0068 | 已用 11050.6s | 剩余 6949.4s
+  [搜索] epoch 6 | 训练损失 0.0036 | 验证转向角 MSE 0.002501 | 已用 11142.7s | 剩余 6857.3s
+[试验 21] 完成 | 验证转向角 MSE 0.002501 | 历史最佳转向角 MSE 0.001860 | 搜索已用 11142.7s
+[试验 22] 开始 | sgd lr=0.001126 batch=16 | 剩余 6857.3s
+  [搜索] epoch 1 | 训练损失 0.2374 | 已用 11230.7s | 剩余 6769.3s
+  [搜索] epoch 2 | 训练损失 0.0233 | 已用 11317.6s | 剩余 6682.4s
+  [搜索] epoch 3 | 训练损失 0.0152 | 已用 11404.8s | 剩余 6595.2s
+  [搜索] epoch 4 | 训练损失 0.0140 | 已用 11492.0s | 剩余 6508.0s
+  [搜索] epoch 5 | 训练损失 0.0108 | 已用 11579.8s | 剩余 6420.2s
+  [搜索] epoch 6 | 训练损失 0.0094 | 验证转向角 MSE 0.006143 | 已用 11669.9s | 剩余 6330.1s
+[试验 22] 完成 | 验证转向角 MSE 0.006143 | 历史最佳转向角 MSE 0.001860 | 搜索已用 11669.9s
+[试验 23] 开始 | sgd lr=0.0009421 batch=32 | 剩余 6330.1s
+  [搜索] epoch 1 | 训练损失 0.2127 | 已用 11748.5s | 剩余 6251.5s
+  [搜索] epoch 2 | 训练损失 0.0233 | 已用 11826.9s | 剩余 6173.1s
+  [搜索] epoch 3 | 训练损失 0.0185 | 已用 11905.2s | 剩余 6094.8s
+  [搜索] epoch 4 | 训练损失 0.0139 | 已用 11984.0s | 剩余 6016.0s
+  [搜索] epoch 5 | 训练损失 0.0126 | 已用 12062.2s | 剩余 5937.8s
+  [搜索] epoch 6 | 训练损失 0.0112 | 验证转向角 MSE 0.012625 | 已用 12143.0s | 剩余 5857.0s
+[试验 23] 完成 | 验证转向角 MSE 0.012625 | 历史最佳转向角 MSE 0.001860 | 搜索已用 12143.0s
+[试验 24] 开始 | sgd lr=0.002301 batch=32 | 剩余 5857.0s
+  [搜索] epoch 1 | 训练损失 6.1199 | 已用 12221.9s | 剩余 5778.1s
+  [搜索] epoch 2 | 训练损失 0.0133 | 已用 12300.2s | 剩余 5699.8s
+  [搜索] epoch 3 | 训练损失 0.0107 | 已用 12378.6s | 剩余 5621.4s
+  [搜索] epoch 4 | 训练损失 0.0093 | 已用 12457.0s | 剩余 5543.0s
+  [搜索] epoch 5 | 训练损失 0.0087 | 已用 12535.5s | 剩余 5464.5s
+  [搜索] epoch 6 | 训练损失 0.0072 | 验证转向角 MSE 0.002272 | 已用 12616.4s | 剩余 5383.6s
+[试验 24] 完成 | 验证转向角 MSE 0.002272 | 历史最佳转向角 MSE 0.001860 | 搜索已用 12616.4s
+[试验 25] 开始 | sgd lr=0.00226 batch=32 | 剩余 5383.6s
+  [搜索] epoch 1 | 训练损失 5.7410 | 已用 12695.3s | 剩余 5304.7s
+  [搜索] epoch 2 | 训练损失 0.0133 | 已用 12773.8s | 剩余 5226.2s
+  [搜索] epoch 3 | 训练损失 0.0106 | 已用 12852.3s | 剩余 5147.7s
+  [搜索] epoch 4 | 训练损失 0.0092 | 已用 12930.7s | 剩余 5069.3s
+  [搜索] epoch 5 | 训练损失 0.0083 | 已用 13008.8s | 剩余 4991.2s
+  [搜索] epoch 6 | 训练损失 0.0070 | 验证转向角 MSE 0.002589 | 已用 13089.6s | 剩余 4910.4s
+[试验 25] 完成 | 验证转向角 MSE 0.002589 | 历史最佳转向角 MSE 0.001860 | 搜索已用 13089.6s
+[试验 26] 开始 | adam lr=0.0002771 batch=32 | 剩余 4910.4s
+  [搜索] epoch 1 | 训练损失 0.1480 | 已用 13179.6s | 剩余 4820.4s
+  [搜索] epoch 2 | 训练损失 0.0108 | 已用 13269.2s | 剩余 4730.8s
+  [搜索] epoch 3 | 训练损失 0.0129 | 已用 13359.1s | 剩余 4640.9s
+  [搜索] epoch 4 | 训练损失 0.0158 | 已用 13448.4s | 剩余 4551.6s
+  [搜索] epoch 5 | 训练损失 0.0076 | 已用 13537.7s | 剩余 4462.3s
+  [搜索] epoch 6 | 训练损失 0.0055 | 验证转向角 MSE 0.005836 | 已用 13630.0s | 剩余 4370.0s
+[试验 26] 完成 | 验证转向角 MSE 0.005836 | 历史最佳转向角 MSE 0.001860 | 搜索已用 13630.1s
+[试验 27] 开始 | adam lr=0.000134 batch=16 | 剩余 4369.9s
+  [搜索] epoch 1 | 训练损失 0.0811 | 已用 13740.1s | 剩余 4259.9s
+  [搜索] epoch 2 | 训练损失 0.0175 | 已用 13849.7s | 剩余 4150.3s
+  [搜索] epoch 3 | 训练损失 0.0126 | 已用 13959.4s | 剩余 4040.6s
+  [搜索] epoch 4 | 训练损失 0.0078 | 已用 14068.7s | 剩余 3931.3s
+  [搜索] epoch 5 | 训练损失 0.0077 | 已用 14178.0s | 剩余 3822.0s
+  [搜索] epoch 6 | 训练损失 0.0060 | 验证转向角 MSE 0.003310 | 已用 14289.8s | 剩余 3710.2s
+[试验 27] 完成 | 验证转向角 MSE 0.003310 | 历史最佳转向角 MSE 0.001860 | 搜索已用 14289.8s
+[试验 28] 开始 | adam lr=0.001647 batch=16 | 剩余 3710.2s
+  [搜索] epoch 1 | 训练损失 0.5229 | 已用 14399.5s | 剩余 3600.5s
+  [搜索] epoch 2 | 训练损失 0.0173 | 已用 14509.1s | 剩余 3490.9s
+  [搜索] epoch 3 | 训练损失 0.0146 | 已用 14619.2s | 剩余 3380.8s
+  [搜索] epoch 4 | 训练损失 0.0139 | 已用 14729.3s | 剩余 3270.7s
+  [搜索] epoch 5 | 训练损失 0.0126 | 已用 14839.3s | 剩余 3160.7s
+  [搜索] epoch 6 | 训练损失 0.0094 | 验证转向角 MSE 0.003694 | 已用 14951.0s | 剩余 3049.0s
+[试验 28] 完成 | 验证转向角 MSE 0.003694 | 历史最佳转向角 MSE 0.001860 | 搜索已用 14951.0s
+[试验 29] 开始 | adam lr=0.0006049 batch=32 | 剩余 3049.0s
+  [搜索] epoch 1 | 训练损失 0.3095 | 已用 15041.1s | 剩余 2958.9s
+  [搜索] epoch 2 | 训练损失 0.0101 | 已用 15132.8s | 剩余 2867.2s
+  [搜索] epoch 3 | 训练损失 0.0115 | 已用 15224.5s | 剩余 2775.5s
+  [搜索] epoch 4 | 训练损失 0.0100 | 已用 15315.3s | 剩余 2684.7s
+  [搜索] epoch 5 | 训练损失 0.0056 | 已用 15408.3s | 剩余 2591.7s
+  [搜索] epoch 6 | 训练损失 0.0044 | 验证转向角 MSE 0.003328 | 已用 15500.7s | 剩余 2499.3s
+[试验 29] 完成 | 验证转向角 MSE 0.003328 | 历史最佳转向角 MSE 0.001860 | 搜索已用 15500.7s
+[试验 30] 开始 | adam lr=0.0004208 batch=16 | 剩余 2499.3s
+  [搜索] epoch 1 | 训练损失 0.1327 | 已用 15612.0s | 剩余 2388.0s
+  [搜索] epoch 2 | 训练损失 0.0142 | 已用 15724.3s | 剩余 2275.7s
+  [搜索] epoch 3 | 训练损失 0.0104 | 已用 15834.9s | 剩余 2165.1s
+  [搜索] epoch 4 | 训练损失 0.0072 | 已用 15945.6s | 剩余 2054.4s
+  [搜索] epoch 5 | 训练损失 0.0056 | 已用 16056.3s | 剩余 1943.7s
+  [搜索] epoch 6 | 训练损失 0.0043 | 验证转向角 MSE 0.002991 | 已用 16169.1s | 剩余 1830.9s
+[试验 30] 完成 | 验证转向角 MSE 0.002991 | 历史最佳转向角 MSE 0.001860 | 搜索已用 16169.1s
+[搜索结束] trial_limit | 30 次试验 | 用时 16169.1s
+[外层测试] 最佳配置 {'lr': 0.0028794238016647635, 'batch_size': 16, 'optimizer': 'sgd'} | 用训练+验证数据重训，单独计时     
+  [重训] epoch 1 | 训练损失 5.4161 | 已用 94.9s
+  [重训] epoch 2 | 训练损失 0.0114 | 已用 190.0s
+  [重训] epoch 3 | 训练损失 0.0103 | 已用 282.4s
+  [重训] epoch 4 | 训练损失 0.0085 | 已用 374.3s
+  [重训] epoch 5 | 训练损失 0.0079 | 已用 465.9s
+  [重训] epoch 6 | 训练损失 0.0068 | 已用 557.2s
+  [重训] epoch 7 | 训练损失 0.0068 | 已用 649.2s
+  [重训] epoch 8 | 训练损失 0.0062 | 已用 741.7s
+  [重训] epoch 9 | 训练损失 0.0054 | 已用 835.9s
+  [重训] epoch 10 | 训练损失 0.0055 | 已用 929.1s
+  [重训] epoch 11 | 训练损失 0.0048 | 已用 1024.4s
+  [重训] epoch 12 | 训练损失 0.0043 | 已用 1116.9s
+  [重训] epoch 13 | 训练损失 0.0046 | 已用 1208.3s
+  [重训] epoch 14 | 训练损失 0.0040 | 已用 1299.4s
+  [重训] epoch 15 | 训练损失 0.0042 | 已用 1390.7s
+  [重训] epoch 16 | 训练损失 0.0038 | 已用 1482.1s
+  [重训] epoch 17 | 训练损失 0.0037 | 已用 1573.3s
+  [重训] epoch 18 | 训练损失 0.0034 | 已用 1664.7s
+  [重训] epoch 19 | 训练损失 0.0033 | 已用 1755.9s
+  [重训] epoch 20 | 训练损失 0.0033 | 已用 1847.4s
+  [重训] epoch 21 | 训练损失 0.0031 | 已用 1938.5s
+  [重训] epoch 22 | 训练损失 0.0031 | 已用 2029.7s
+  [重训] epoch 23 | 训练损失 0.0030 | 已用 2120.9s
+  [重训] epoch 24 | 训练损失 0.0029 | 已用 2212.0s
+  [重训] epoch 25 | 训练损失 0.0027 | 已用 2303.4s
+  [重训] epoch 26 | 训练损失 0.0029 | 已用 2394.6s
+  [重训] epoch 27 | 训练损失 0.0029 | 已用 2485.6s
+  [重训] epoch 28 | 训练损失 0.0028 | 已用 2577.2s
+  [重训] epoch 29 | 训练损失 0.0029 | 已用 2668.4s
+  [重训] epoch 30 | 训练损失 0.0024 | 已用 2760.0s
+  [重训] epoch 31 | 训练损失 0.0027 | 已用 2852.2s
+  [重训] epoch 32 | 训练损失 0.0023 | 已用 2943.5s
+  [重训] epoch 33 | 训练损失 0.0023 | 已用 3034.7s
+  [重训] epoch 34 | 训练损失 0.0023 | 已用 3125.9s
+  [重训] epoch 35 | 训练损失 0.0023 | 已用 3217.0s
+  [重训] epoch 36 | 训练损失 0.0024 | 已用 3308.2s
+  [重训] epoch 37 | 训练损失 0.0023 | 已用 3399.9s
+  [重训] epoch 38 | 训练损失 0.0023 | 已用 3492.2s
+  [重训] epoch 39 | 训练损失 0.0026 | 已用 3584.2s
+  [重训] epoch 40 | 训练损失 0.0021 | 已用 3676.7s
+  [重训] epoch 41 | 训练损失 0.0020 | 已用 3768.2s
+  [重训] epoch 42 | 训练损失 0.0021 | 已用 3859.9s
+  [重训] epoch 43 | 训练损失 0.0021 | 已用 3951.5s
+  [重训] epoch 44 | 训练损失 0.0020 | 已用 4042.7s
+  [重训] epoch 45 | 训练损失 0.0021 | 已用 4134.1s
+  [重训] epoch 46 | 训练损失 0.0019 | 已用 4226.8s
+  [重训] epoch 47 | 训练损失 0.0020 | 已用 4318.4s
+  [重训] epoch 48 | 训练损失 0.0021 | 已用 4409.1s
+  [重训] epoch 49 | 训练损失 0.0019 | 已用 4499.4s
+  [重训] epoch 50 | 训练损失 0.0020 | 已用 4589.7s
+  [重训] epoch 51 | 训练损失 0.0020 | 已用 4680.4s
+  [重训] epoch 52 | 训练损失 0.0020 | 已用 4770.8s
+  [重训] epoch 53 | 训练损失 0.0018 | 已用 4861.3s
+  [重训] epoch 54 | 训练损失 0.0020 | 已用 4951.7s
+  [重训] epoch 55 | 训练损失 0.0019 | 已用 5042.0s
+  [重训] epoch 56 | 训练损失 0.0019 | 已用 5132.1s
+  [重训] epoch 57 | 训练损失 0.0018 | 已用 5222.4s
+  [重训] epoch 58 | 训练损失 0.0017 | 已用 5312.8s
+  [重训] epoch 59 | 训练损失 0.0018 | 已用 5403.4s
+  [重训] epoch 60 | 训练损失 0.0018 | 已用 5495.1s
+[外层测试] 测试转向角 MSE 0.003944 | MAE 0.036238
+报告 D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\donkeycar_beyesian_full_20261110_102326\report.json
+Anytime Performance Curve D:\Undergraduate\WZH\EnNeuro\tmp\Enneuro-Project\.worktrees\automl-basic-agent\artifacts\donkeycar_beyesian_full_20261110_102326\anytime.svg

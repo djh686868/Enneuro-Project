@@ -1,0 +1,49 @@
+@startuml
+' ============================================================
+' 子用例图：可解释AI分析 (UC8)
+' 所属模块：新增功能模块
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "可解释AI分析" {
+    usecase "Grad-CAM热力图生成" as UC8_1
+    usecase "导向反向传播特征可视化" as UC8_2
+    usecase "自动驾驶模型决策区域分析" as UC8_3
+}
+
+rectangle "依赖的外部用例" {
+    usecase "评估与测试" as UC6
+}
+
+User --> UC8_1
+User --> UC8_2
+User --> UC8_3
+
+' Grad-CAM 与导向反向传播互补分析
+UC8_1 ..> UC8_2 : depends on
+
+' 决策区域分析综合使用两种可视化技术
+UC8_1 ..> UC8_3 : depends on
+UC8_2 ..> UC8_3 : depends on
+
+' 跨模块依赖：可解释分析基于评估结果
+UC8_3 ..> UC6 : <<extend>>
+
+@enduml

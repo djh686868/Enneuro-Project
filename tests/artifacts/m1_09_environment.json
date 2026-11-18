@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-10-15T23:48:08+0800",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.13.5",
+  "numpy": "2.5.3",
+  "capabilities": {
+    "numpy": {
+      "implemented": true,
+      "available": true,
+      "reason": ""
+    },
+    "cupy": {
+      "implemented": true,
+      "available": true,
+      "reason": ""
+    },
+    "cuda_c": {
+      "implemented": true,
+      "available": true,
+      "reason": "",
+      "route": "cupy.RawModule/NVRTC"
+    },
+    "extension": {
+      "implemented": false,
+      "available": false,
+      "reason": "ctypes/DLL loader is not implemented"
+    }
+  },
+  "command_args": {
+    "ops": [
+      "conv",
+      "pool"
+    ],
+    "backends": [
+      "numpy",
+      "cupy",
+      "cuda_c"
+    ],
+    "iters": 20,
+    "warmup": 5,
+    "seed": 20261015,
+    "atol": 0.0001,
+    "rtol": 0.0001,
+    "stride": [
+      1,
+      1
+    ],
+    "pad": [
+      1,
+      1
+    ],
+    "dilation": [
+      1,
+      1
+    ],
+    "shapes": null,
+    "kernels": null,
+    "pool_kernel": [
+      2,
+      2
+    ],
+    "pool_stride": [
+      2,
+      2
+    ],
+    "pool_pad": [
+      0,
+      0
+    ],
+    "out_csv": "tests\\artifacts\\m1_09_benchmark.csv",
+    "out_plot": "tests\\artifacts\\m1_09_speedup.png",
+    "out_meta": "tests\\artifacts\\m1_09_environment.json",
+    "fail_on_error": true
+  },
+  "cuda_c_route": "CuPy RawModule compiling sources/kernels.cu with NVRTC",
+  "extension_todo": "nvcc DLL sources exist, but the Python ctypes/extension loader is not implemented",
+  "cupy": "14.2.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "compute_capability": "120",
+  "cuda_runtime": 12090,
+  "cuda_driver": 13040
+}

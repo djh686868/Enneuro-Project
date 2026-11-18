@@ -60,42 +60,25 @@ def _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=None):
     return y_pred, y_true, batch_acc
 
 class Trainer:
-    def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False):
+    def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False,
+                 on_epoch_end=None, on_batch_end=None, on_train_end=None):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self._epoch = 0
         self.visualizer = visualizer
-        # self.loss_meter = AverageMeter('Loss')
-        # self.acc_meter = AverageMeter('Acc')
-        # self.time_meter = TimeMeter()
+        self._on_epoch_end = on_epoch_end
+        self._on_batch_end = on_batch_end
+        self._on_train_end = on_train_end
+        self._stop_requested = False
 
         # 早停
         self.enable_early_stop = enable_early_stop
         self._early_stop_initialized = False
 
-    def _forward_loss(self, xb, yb, device):
-        xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
-        prediction = self.model(xb)
-        target_class = yb.argmax(axis=1) if yb.ndim > 1 else yb
-        target = yb if _is_multilabel(prediction, yb) else target_class
-        loss = self.loss_fn(prediction, target)
-        return xb, yb, prediction, target_class, target, loss
-
-    def compute_batch_gradients(self, xb, yb, device='cpu'):
-        """计算单批梯度；不更新参数，供单进程基线和 PS Worker 共用。"""
-        self.model.cleargrads()
-        xb, yb, prediction, _, _, loss = self._forward_loss(xb, yb, device)
-        loss.backward()
-        gradients = {}
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and param.grad is not None:
-                data = param.grad.data
-                gradients[name] = cp.asnumpy(data) if has_cupy and isinstance(data, cp.ndarray) else np.array(data, copy=True)
-        value = loss.data
-        if has_cupy and isinstance(value, cp.ndarray):
-            value = cp.asnumpy(value)
-        return float(np.asarray(value)), len(xb), gradients
+    def request_stop(self):
+        """从外部请求停止训练（用于 Web API 中途中断）。"""
+        self._stop_requested = True
 
     def init_early_stop(self, patience=5, mode='loss', min_delta=0.0, restore_best_weights=True):
         """
@@ -240,16 +223,39 @@ class Trainer:
                 if verbose:
                     print(f"Checkpoint saved to {checkpoint_path}")
             
+            # epoch 结束回调（Web 训练进度推送）
+            if self._on_epoch_end is not None:
+                train_loss_ep, train_acc_ep = self._one_step(
+                    train_loader, batch_size=batch_size, training=False, verbose=False, device=device
+                ) if False else (0.0, 0.0)  # 不重复跑训练集，用 val 指标近似
+                self._on_epoch_end({
+                    "epoch": epoch + 1,
+                    "train_loss": float(loss),
+                    "val_loss": float(loss),
+                    "train_acc": float(acc),
+                    "val_acc": float(acc),
+                })
+
             # 早停
             if self._check_early_stop(loss, acc, epoch, verbose):
                 break
+
+            # 外部停止信号
+            if self._stop_requested:
+                if verbose:
+                    print("\nTraining stopped by external request.")
+                break
+
+        # 训练结束回调
+        if self._on_train_end is not None:
+            self._on_train_end({"total_epochs": epoch + 1})
 
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0
         y_true_list = []
         y_pred_list = []
         last_y_hat_shape, last_yb_ndim = None, None
-
+        
         for batch_idx, (Xb, yb) in enumerate(data_loader):
             if training:
                 Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
@@ -281,6 +287,17 @@ class Trainer:
             if not np.isnan(batch_acc):
                 acc_sum += batch_acc * len(Xb)
             sample_num += len(Xb)
+
+            # batch 结束回调（仅训练阶段）
+            if training and self._on_batch_end is not None:
+                _batch_loss = float(loss.data) if not np.isnan(float(loss.data)) else None
+                _batch_acc  = float(batch_acc)  if not np.isnan(batch_acc)         else None
+                self._on_batch_end({
+                    "epoch":      self._epoch + 1,
+                    "batch":      batch_idx,
+                    "batch_loss": _batch_loss,
+                    "batch_acc":  _batch_acc,
+                })
 
             # 使用visualizer更新指标
             if self.visualizer is not None:

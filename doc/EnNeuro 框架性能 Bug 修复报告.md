@@ -6,11 +6,11 @@
 
 **诱因**：对比 `train.py`（使用 `Trainer` 封装）与 `test_resnet18.py`（裸循环）训练同一 ResNet18 模型时，观测到显著的速度差异：
 
-| 脚本               | batch_size | 耗时           |
-| ------------------ | ---------- | -------------- |
-| `test_resnet18.py` | 32         | ~340s          |
-| `train.py`         | 16         | ~498s          |
-| `train.py`         | 32         | ~1130s（推算） |
+| 脚本                         | batch_size | 耗时   |
+| ---------------------------- | ---------- | ------ |
+| `test_resnet18.py`（裸循环） | 32         | ~340s  |
+| `train.py`（Trainer封装）    | 16         | ~498s  |
+| `train.py`（Trainer封装）    | 32         | ~1130s |
 
 特别异常的是：`train.py` 使用 batch=32 比 batch=16 **慢 2.25 倍**（每 batch 慢 4.6 倍），与通常"大 batch 更快"的预期相反。
 

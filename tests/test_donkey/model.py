@@ -40,10 +40,6 @@ class ResNet18AutoDrive(Module):
     
     def forward(self, x):
         """前向推理"""
-        # 调整输入形状 (batch, 3, 120, 160)
-        if x.shape[1:] != (3, 120, 160):
-            x = F.reshape(x, (x.shape[0], 3, 120, 160))
-        
         # 初始卷积层
         x = self.conv1(x)
         x = self.bn1(x)

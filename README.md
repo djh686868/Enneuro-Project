@@ -170,6 +170,10 @@ model = Sequential(
 
 ## API文档
 
+### AutoML 调参 Agent
+
+支持随机搜索、局部搜索、进化搜索和贝叶斯优化。见 [Agent 接口](doc/automl_agent_api.md) 和 [数据准备与启动指南](doc/automl_agent_guide.md)。
+
 ### 模型定义
 
 ```python

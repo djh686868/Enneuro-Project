@@ -1,0 +1,117 @@
+自动混合精度算法分析
+
+本文档为 EnNeuro 框架自动混合精度（Automatic Mixed Precision, AMP）功能的算法层面阐述。
+
+一、概述
+
+自动混合精度功能在自动融合算子功能的基础上，对原有的静态图进行遍历，对特定算子添加前置节点进行精度的提升或下降，实现降低精度所达到的运算加速。同时，为了防止低精度下的梯度消失问题，需要在反向传播时使用动态损失缩放器，使梯度落入精度的可表示范围内。
+
+二、自动精度转换算法
+
+自动精度转换算法的核心流程为：按拓扑排序自顶向下遍历静态图节点，若可以降低精度且输入节点为高精度，则插入降低精度算子，若需要升高精度且输入节点为低精度，则插入升高精度算子。算法首先对所有算子按对数值精度的敏感程度划分为三类，分类信息集中维护在 CastRegistry 中：可降精度算子（cancast）包括卷积类（Conv2d、GroupedConv2d、Deconv2d）、线性类（Linear、MatMul）、激活类（ReLU、Sigmoid、Tanh）、池化类（Pooling、AveragePooling、GlobalAveragePooling）以及融合类（FusedConvReLU），这类算子的数值计算对精度不敏感，可以使用 float16 执行以获得加速收益；拒降精度算子（resist_cast）包括数学运算（Sin、Cos、Exp、Log）、归一化（BatchNorm2d、Softmax）、聚合运算（Mean）以及融合类（FusedConvBNReLU，内含 BatchNorm，需保持高精度），这类算子涉及指数、对数、归一化等数值敏感运算，float16 的有限表示范围和精度可能导致严重的数值误差，必须使用 float32 执行以确保训练稳定性；无精度偏好算子未在 CastRegistry 中显式注册，它们不主动要求特定精度，而是根据输入张量的实际精度自适应执行。上述分类策略可总结为以下规则：当算子属于 cancast 集合时使用 float16（降精度），当算子属于 resist_cast 集合时使用 float32（保持高精度），其他算子由输入精度决定。框架定义了两种核心精度转换算子用于在图中插入显式的精度转换：DownCast(dtype) 将高精度张量降低至目标低精度（float32 → float16），用于在可降精度算子前将输入转换为低精度；UpCast(dtype) 将低精度张量提升至目标高精度（float16 → float32），用于在拒降精度算子前将输入恢复为高精度。
+
+算法：自动混合精度图转换
+
+输入: 静态计算图 G，目标低精度 dtype（默认 'float16'），目标高精度 UPPER_DTYPE（默认 'float32'）
+输出: 插入精度转换节点后的图 G
+
+1.  获取 G 的拓扑排序序列
+2.  for each 节点 node in 拓扑序列:
+3.      if node 不是函数节点: continue
+4.      
+5.      ▷ 情况一：可降精度算子（插入降低精度算子）
+6.      if node 对应算子 ∈ CastRegistry.cancast:
+7.          前驱节点列表 ← G.获取前驱(node)
+8.          for each 前驱节点 pre in 前驱节点列表:
+9.              if pre.dtype 精度高于 dtype（即输入节点为高精度）:
+10.                 ▷ 插入降低精度算子 DownCast，将输入从 float32 转换为 float16
+11.                 G.移除边(pre → node)
+12.                 创建 DownCast(dtype) 函数节点
+13.                 执行 DownCast 前向得到输出张量，创建对应张量节点
+14.                 G.添加边(pre → DownCast节点)
+15.                 G.添加边(DownCast节点 → 新张量节点)
+16.                 G.添加边(新张量节点 → node)
+17.              else:
+18.                 G.重建边(pre → node)    ▷ 输入已为低精度，无需转换
+19.          后继节点列表 ← G.获取后继(node)
+20.          for each 后继节点 suc in 后继节点列表:
+21.              标记 suc.dtype ← dtype（float16）      ▷ 传播低精度标记
+22.          continue
+23.     
+24.     ▷ 情况二：拒降精度算子（插入升高精度算子）
+25.     if node 对应算子 ∈ CastRegistry.resist_cast:
+26.         前驱节点列表 ← G.获取前驱(node)
+27.         for each 前驱节点 pre in 前驱节点列表:
+28.             if UPPER_DTYPE 精度高于 pre.dtype（即输入节点为低精度）:
+29.                 ▷ 插入升高精度算子 UpCast，将输入从 float16 转换为 float32
+30.                 G.移除边(pre → node)
+31.                 创建 UpCast(UPPER_DTYPE) 函数节点
+32.                 执行 UpCast 前向得到输出张量，创建对应张量节点
+33.                 G.添加边(pre → UpCast节点)
+34.                 G.添加边(UpCast节点 → 新张量节点)
+35.                 G.添加边(新张量节点 → node)
+36.             else:
+37.                 G.重建边(pre → node)    ▷ 输入已为高精度，无需转换
+38.         后继节点列表 ← G.获取后继(node)
+39.         for each 后继节点 suc in 后继节点列表:
+40.             标记 suc.dtype ← UPPER_DTYPE（float32）  ▷ 传播高精度标记
+41.         continue
+42.     
+43.     ▷ 情况三：无精度偏好算子（使用输入精度）
+44.     前驱节点列表 ← G.获取前驱(node)
+45.     后继节点列表 ← G.获取后继(node)
+46.     suc_dtype ← 前驱节点的精度（取最高者）
+47.     for each 后继节点 suc in 后继节点列表:
+48.         标记 suc.dtype ← suc_dtype      ▷ 精度自然传递
+49. 
+50. end for
+51. return G
+
+图1-1-20 混合精度核心流程图
+
+以典型的 Conv2d → BatchNorm2d → ReLU 算子链为例，转换前的计算图中所有张量均为 float32 精度；转换后的计算图中，由于 Conv2d 属于可降精度算子且输入节点为高精度，因此在输入 Tensor (float32) 与 Conv2d 之间插入降低精度算子 DownCast (→float16)，使 Conv2d 在 float16 下执行；由于 BatchNorm2d 属于拒降精度算子且输入节点为低精度，因此在 Conv2d 的输出 Tensor (float16) 与 BatchNorm2d 之间插入升高精度算子 UpCast (→float32)，使 BatchNorm2d 在 float32 下执行；由于 ReLU 属于可降精度算子且输入节点为高精度，因此在 BatchNorm2d 的输出 Tensor (float32) 与 ReLU 之间插入降低精度算子 DownCast (→float16)，使 ReLU 在 float16 下执行，最终输出 Tensor (float16)。
+
+三、动态损失缩放算法
+
+为了防止低精度下的梯度消失问题，需要在反向传播时使用动态损失缩放器，使梯度落入精度的可表示范围内。其核心流程为：对损失值进行缩放，然后进行反向传播，梯度下降时，若溢出则放弃更新，否则进行反向缩放，还原梯度，正常更新参数，若多次正常更新，则尝试增大缩放倍数，最终使缩放倍数达到动态稳定。
+
+算法：动态损失缩放（GradScaler）
+
+超参数:
+    init_scale = 32768.0        ▷ 初始缩放因子
+    growth_factor = 2.0         ▷ 增长倍数
+    backoff_factor = 0.5        ▷ 回退倍数
+    growth_interval = 2000      ▷ 连续无溢出步数阈值
+    min_scale = 1.0             ▷ 最小缩放因子
+
+状态变量:
+    scale_factor ← init_scale   ▷ 当前缩放因子
+    step_count ← 0              ▷ 连续无溢出步数计数
+
+1.  过程 scale(loss):
+2.      return scale_factor * loss          ▷ 对损失值进行缩放
+
+3.  过程 step(optimizer):
+4.      has_overflow ← False
+5.      for each param in optimizer.params:
+6.          if param.grad 为 None: continue
+7.          if param.grad 中存在 inf 或 nan:
+8.              has_overflow ← True
+9.              break
+
+10.     if has_overflow:                     ▷ 梯度溢出：放弃本次更新
+11.         optimizer.zero_grad()            ▷ 清除无效梯度
+12.         scale_factor ← scale_factor × backoff_factor
+13.         scale_factor ← max(scale_factor, min_scale)
+14.         step_count ← 0
+15.     else:                                ▷ 无溢出：正常更新
+16.         for each param in optimizer.params:
+17.             if param.grad 为 None: continue
+18.             param.grad.data ← param.grad.data / scale_factor  ▷ 反向缩放，还原梯度
+19.         optimizer.step()                 ▷ 正常更新参数
+20.         step_count ← step_count + 1
+21.         if step_count ≥ growth_interval:
+22.             scale_factor ← scale_factor × growth_factor      ▷ 多次正常更新，增大缩放倍数
+23.             step_count ← 0
+
+缩放因子 S 采用自适应增长-回退策略动态调整：当连续 N_interval = 2000 步未检测到梯度溢出时，认为当前缩放因子较为保守，将其翻倍（S ← S × 2），以尝试更大的缩放幅度来覆盖更小的梯度；一旦检测到任何参数梯度中出现 inf 或 nan（由过大缩放导致的上溢），立即放弃本次参数更新（梯度已不可靠），将缩放因子减半（S ← S × 0.5），并重置无溢出计数器；缩放因子不低于 min_scale = 1.0，确保 loss 不会被缩小。初始缩放因子 S_0 = 32768 是根据经验选取的保守值，足以覆盖大多数网络结构中的小梯度，通常在前几个 step 即可通过增长机制收敛到合适的动态范围。

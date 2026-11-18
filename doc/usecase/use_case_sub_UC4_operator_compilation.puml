@@ -1,0 +1,51 @@
+@startuml
+' ============================================================
+' 子用例图：算子编译优化 (UC4)
+' 所属模块：新增功能模块
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "算子编译优化" {
+    usecase "捕获静态计算图" as UC4_1
+    usecase "算子自动融合优化" as UC4_2
+    usecase "Winograd和FFT卷积算法调度" as UC4_3
+    usecase "静态图离线推理执行" as UC4_4
+}
+
+rectangle "依赖的外部用例" {
+    usecase "模型构建" as UC2
+}
+
+User --> UC4_1
+User --> UC4_2
+User --> UC4_3
+User --> UC4_4
+
+' 工作流程：先捕获计算图，再进行算子融合优化
+UC4_1 ..> UC4_2 : depends on
+UC4_1 ..> UC4_3 : depends on
+
+' 离线推理执行依赖算子优化
+UC4_2 ..> UC4_4 : depends on
+
+' 跨模块依赖：需要先有模型
+UC4_1 ..> UC2 : depends on
+
+@enduml

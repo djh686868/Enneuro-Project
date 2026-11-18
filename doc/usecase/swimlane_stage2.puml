@@ -1,0 +1,60 @@
+@startuml EnNeuro_Swimlane_Stage2
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "SimSun"
+skinparam defaultFontSize 14
+skinparam activity {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+    ArrowColor #000000
+}
+skinparam arrowColor #000000
+skinparam boundary {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam partition {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+|Trainer|
+|Data|
+|NN|
+|LossOptim|
+
+start
+repeat :Epoch循环;
+    repeat :Batch循环;
+        partition "数据加载" {
+            :多进程预取;
+            :图像增强处理;
+            :返回原始张量;
+        }
+        :设备迁移CPU/GPU;
+        partition "前向推理" {
+            :model(Xb);
+            :输出y_hat;
+        }
+        :计算损失;
+        partition "反向传播" {
+            :清空梯度;
+            :loss.backward();
+            :L1/L2正则化;
+            :优化器更新权重;
+        }
+        :记录batch指标;
+    repeat again
+    partition "验证阶段" {
+        :加载验证数据;
+        :计算epoch损失/精度;
+    }
+    if ("早停触发?") then (是)
+        :保存最优权重;
+        stop
+    else (否)
+    endif
+repeat again
+stop
+
+@enduml

@@ -1,0 +1,26 @@
+flowchart TB
+    subgraph convf["卷积前向：自研窗口展开 + 保留 GEMM"]
+        x["输入 x"]:::input --> im2col["CUDA im2col<br/>每线程写一个展开元素"]:::custom
+        im2col --> gemm["CuPy / cuBLAS GEMM<br/>col × W"]:::baseline
+        w["权重 W"]:::input --> gemm
+        gemm --> bias["CUDA bias kernel"]:::custom --> y["输出 y"]:::output
+    end
+    subgraph convb["卷积反向：三条路径分工"]
+        gy["上游梯度 gy"]:::input --> gxk["CUDA conv_bwd_x<br/>每线程负责一个 gx 并 gather"]:::custom --> gx["输入梯度 gx"]:::output
+        gy --> gwg["CuPy im2col + GEMM"]:::baseline
+        xb["保存的输入 x"]:::input --> gwg
+        gwg --> gw["权重梯度 gW"]:::output
+        gy --> gbs["CuPy sum"]:::baseline --> gb["偏置梯度 gb"]:::output
+        wb["权重 W"]:::input --> gxk
+    end
+    subgraph pool["最大池化反向：当前实现"]
+        px["输入 x"]:::input --> poolf["CUDA pool_f32<br/>窗口扫描 + 保存 argmax"]:::custom --> py["池化输出 y<br/>与 indexes"]:::output
+        pgy["上游梯度 gy + indexes"]:::input --> poolb["CUDA pool_bwd_f32<br/>scatter + atomicAdd（重叠窗口）"]:::custom --> pgx["输入梯度 gx"]:::output
+    end
+    classDef input fill:#DCFCE7,stroke:#15803D,color:#111827,stroke-width:2px;
+    classDef custom fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px;
+    classDef baseline fill:#E5E7EB,stroke:#4B5563,color:#111827,stroke-width:2px;
+    classDef output fill:#FFEDD5,stroke:#C2410C,color:#111827,stroke-width:2px;
+    style convf fill:#F8FAFC,stroke:#64748B,stroke-width:2px
+    style convb fill:#F8FAFC,stroke:#64748B,stroke-width:2px
+    style pool fill:#F8FAFC,stroke:#64748B,stroke-width:2px

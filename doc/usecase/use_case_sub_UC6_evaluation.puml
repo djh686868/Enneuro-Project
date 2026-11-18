@@ -1,0 +1,48 @@
+@startuml
+' ============================================================
+' 子用例图：评估与测试 (UC6)
+' 所属模块：辅助功能模块
+' ============================================================
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontSize 16
+skinparam usecase {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam actor {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+skinparam rectangle {
+    BorderColor #000000
+    BackgroundColor #FFFFFF
+}
+
+top to bottom direction
+
+actor "User（用户）" as User
+
+rectangle "评估与测试" {
+    usecase "模型评估" as UC6_1
+    usecase "计算指标" as UC6_2
+    usecase "可视化结果" as UC6_3
+}
+
+rectangle "依赖的外部用例" {
+    usecase "可视化" as UC7
+}
+
+User --> UC6_1
+User --> UC6_2
+User --> UC6_3
+
+' 评估后计算指标
+UC6_1 ..> UC6_2 : depends on
+
+' 结果可视化依赖指标计算
+UC6_2 ..> UC6_3 : depends on
+
+' 跨模块依赖：可视化的图表展示
+UC6_3 ..> UC7 : depends on
+
+@enduml

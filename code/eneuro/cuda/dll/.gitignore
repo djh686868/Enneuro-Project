@@ -1,0 +1,8 @@
+# 编译产物：由 build.bat / build.sh 从 ../cu/*.cu 生成，不入库
+# （与 code/eneuro/base/cuda/bin/.gitignore 保持同一约定）
+*.dll
+*.lib
+*.exp
+*.ptx
+*.log
+build_manifest.json

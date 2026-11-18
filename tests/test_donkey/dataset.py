@@ -28,10 +28,11 @@ class AutoDriveDataset(Dataset):
         self.transform = transform
         assert self.mode in {"train", "val"}
         
+        current_dir = Path(__file__).resolve().parent
         if self.mode == "train":
-            file_path = "./train.txt"
+            file_path = str(current_dir / "train.txt")
         else:
-            file_path = "./val.txt"
+            file_path = str(current_dir / "val.txt")
         
         self.file_list = list()
         with open(file_path, "r") as f:

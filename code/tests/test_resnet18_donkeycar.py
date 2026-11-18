@@ -47,6 +47,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from eneuro.base import as_Tensor, Config  # noqa: E402
 from eneuro.base import Tensor  # noqa: E402
 from eneuro.base import functions as F  # noqa: E402
+from eneuro.base.cuda import set_backend, launch_counts  # noqa: E402
 from eneuro.data import Dataset, DataLoader  # noqa: E402
 from eneuro.nn.loss import meanSquaredError  # noqa: E402
 from eneuro.nn.module import Module, Conv2d, BatchNorm, Linear, ResidualBlock, Sequential  # noqa: E402
@@ -221,8 +222,11 @@ class ResNet18Steering(Module):
 
 class DonkeycarDataset(Dataset):
     def __init__(self, x, y):
-        self._x = x.astype(np.float32)
-        self._y = y.astype(np.float32)
+        # ``astype`` defaults to copy=True even when the source is already
+        # float32.  For 6200 RGB images at 256x256 that needless copy is
+        # several GiB per split and can push the process into paging.
+        self._x = np.asarray(x, dtype=np.float32)
+        self._y = np.asarray(y, dtype=np.float32)
         super().__init__(train=True)
 
     def prepare(self):
@@ -370,8 +374,10 @@ def evaluate(model, loader, device='cpu'):
 
 
 def main():
-    default_ckpt = Path(__file__).resolve().parent / 'checkpoints' / 'resnet18_donkeycar_checkpoint.json'
-    default_best_ckpt = Path(__file__).resolve().parent / 'checkpoints' / 'resnet18_donkeycar_best_checkpoint.json'
+    # Binary checkpoints avoid JSON list expansion (multi-GiB for a full
+    # ResNet18 + Adam state) and are atomic on interruption.
+    default_ckpt = Path(__file__).resolve().parent / 'checkpoints' / 'resnet18_donkeycar_checkpoint.pkl'
+    default_best_ckpt = Path(__file__).resolve().parent / 'checkpoints' / 'resnet18_donkeycar_best_checkpoint.pkl'
 
     parser = argparse.ArgumentParser(description='DonkeyCar图像转向角回归训练 (ResNet18)')
     parser.add_argument('--data-dir', type=str, default=r'D:\Enneuro\tests\testdata\data', help='数据目录，默认自动查找')
@@ -387,8 +393,12 @@ def main():
     parser.add_argument('--load-checkpoint', type=str, default=None, help='从已有checkpoint加载并继续训练')
     parser.add_argument('--save-each-epoch', action='store_true', help='每个epoch结束后都保存checkpoint')
     parser.add_argument('--device', type=str, default='cuda', help='训练设备: cpu/cuda')
+    parser.add_argument('--backend', type=str, default=os.environ.get('ENNEURO_CUDA_BACKEND', 'cupy'), choices=('cupy', 'rawmodule', 'auto'), help='CUDA算子后端')
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
+
+    set_backend(args.backend)
+    print('[INFO] cuda_backend={}'.format(args.backend))
 
     np.random.seed(args.seed)
 
@@ -416,6 +426,11 @@ def main():
     )
 
     print('[INFO] 数据划分: train={}, val={}, test={}'.format(len(x_tr), len(x_va), len(x_te)))
+
+    # The three split arrays own their storage.  Release the original stacked
+    # dataset before model construction so host memory is not kept at roughly
+    # two copies of the complete image set for the entire training run.
+    del x_all, y_all
 
     train_loader = DataLoader(DonkeycarDataset(x_tr, y_tr), batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(DonkeycarDataset(x_va, y_va), batch_size=args.batch_size, shuffle=False)
@@ -501,6 +516,7 @@ def main():
             print('[INFO] 已保存checkpoint:', save_path)
 
     te_mse, te_mae = evaluate(model, test_loader, device=device)
+    print('[METRIC] cuda_launch_counts={}'.format(launch_counts()))
     metrics = collect_process_metrics(
         start_wall,
         start_cpu_time,
