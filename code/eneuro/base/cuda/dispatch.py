@@ -28,8 +28,50 @@ _EXTRA_FUNCTIONS = {}
 # profiling the CUDA-C kernel itself.
 _WINOGRAD_MAX_OUTPUT = int(os.environ.get("ENNEURO_WINOGRAD_MAX_OUTPUT", "4096"))
 _RAW_REFERENCE_CONV_OUTPUT = int(os.environ.get("ENNEURO_RAW_REFERENCE_CONV_OUTPUT", "4096"))
+_CONV_BACKWARD_PROFILE = False
+_CONV_BACKWARD_PROFILE_EVENTS = []
+
+
+def set_conv_backward_profile(enabled=True):
+    """Enable optional CUDA-event timing for conv2d_backward phases."""
+    global _CONV_BACKWARD_PROFILE
+    _CONV_BACKWARD_PROFILE = bool(enabled)
+    _CONV_BACKWARD_PROFILE_EVENTS.clear()
+
+
+def get_conv_backward_profile():
+    """Return accumulated GPU milliseconds by backward phase."""
+    if not _CONV_BACKWARD_PROFILE_EVENTS:
+        return {}
+    cp.cuda.get_current_stream().synchronize()
+    totals = {}
+    for label, start, stop in _CONV_BACKWARD_PROFILE_EVENTS:
+        totals[label] = totals.get(label, 0.0) + cp.cuda.get_elapsed_time(start, stop)
+    return totals
+
+
+def _conv_backward_phase_start():
+    if not _CONV_BACKWARD_PROFILE:
+        return None
+    start = cp.cuda.Event()
+    start.record(cp.cuda.get_current_stream())
+    return start
+
+
+def _conv_backward_phase_stop(label, start):
+    if start is None:
+        return
+    stop = cp.cuda.Event()
+    stop.record(cp.cuda.get_current_stream())
+    _CONV_BACKWARD_PROFILE_EVENTS.append((label, start, stop))
 _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE = int(
     os.environ.get("ENNEURO_RAW_CUSTOM_ELEMENTWISE_MAX_SIZE", "4096")
+)
+_RAW_BATCHNORM_BACKWARD_MAX_SIZE = int(
+    os.environ.get(
+        "ENNEURO_RAW_BATCHNORM_BACKWARD_MAX_SIZE",
+        "262144",
+    )
 )
 
 _KERNEL_SOURCE_PATH = Path(__file__).with_name("sources") / "kernels.cu"
@@ -299,7 +341,9 @@ def batchnorm_forward(x, mean, var, gamma, beta, eps=1e-5):
                 (x-mean.reshape(1,-1,1,1)) /
                 cp.sqrt(var.reshape(1,-1,1,1) + eps_value) +
                 beta.reshape(1,-1,1,1))
-    n,c,h,w=map(int,x.shape); y=cp.empty_like(x); spatial=h*w
+    # The kernel indexes a packed NCHW output linearly.  `empty_like` may
+    # preserve a transposed input's strides, so allocate a C-contiguous output.
+    n,c,h,w=map(int,x.shape); y=cp.empty(x.shape,dtype=x.dtype); spatial=h*w
     _call_extra("batchnorm_fwd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(mean.reshape(-1)), cp.ascontiguousarray(var.reshape(-1)), cp.ascontiguousarray(gamma.reshape(-1)), cp.ascontiguousarray(beta.reshape(-1)), y, np.int64(n), np.int64(c), np.int64(spatial), np.float32(eps)), x.size)
     return y
 
@@ -311,10 +355,12 @@ def batchnorm_backward(x, gy, mean, var, gamma, eps=1e-5):
     eps_value = cp.asarray(eps, dtype=dtype)
     inv=cp.asarray(1, dtype=dtype)/cp.sqrt(var1+eps_value)
     xhat=(x-mean1)*inv
-    gbeta=gy.sum(axis=(0,2,3)); ggamma=(gy*xhat).sum(axis=(0,2,3)); gx=cp.empty_like(x)
+    gbeta=gy.sum(axis=(0,2,3)); ggamma=(gy*xhat).sum(axis=(0,2,3))
+    # batchnorm_bwd_f32 also writes packed NCHW values by linear index.
+    gx=cp.empty(x.shape,dtype=x.dtype)
     if (_raw_enabled()
             and all(a.dtype == cp.float32 for a in (x,gy,mean,gamma))
-            and int(x.size) <= _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE):
+            and int(x.size) <= _RAW_BATCHNORM_BACKWARD_MAX_SIZE):
         _call_extra("batchnorm_bwd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(gy), cp.ascontiguousarray(mean.reshape(-1)), cp.ascontiguousarray(inv.reshape(-1)), cp.ascontiguousarray(gamma.reshape(-1)), cp.ascontiguousarray(gbeta), cp.ascontiguousarray(ggamma), gx, np.int64(n), np.int64(c), np.int64(spatial)), x.size)
     else:
         m=cp.asarray(n*spatial, dtype=dtype)
@@ -350,6 +396,11 @@ def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
         and gy.dtype == cp.float32 and (dh, dw) == (1, 1)
         and int(x.size) <= _RAW_REFERENCE_CONV_OUTPUT
     )
+    use_raw_im2col = (
+        _raw_enabled() and x.dtype == cp.float32 and w.dtype == cp.float32
+        and gy.dtype == cp.float32 and (dh, dw) == (1, 1)
+    )
+    gx_start = _conv_backward_phase_start()
     if use_custom_backward:
         gx = cp.zeros_like(x); _call("conv_bwd_x_f32", (cp.ascontiguousarray(gy), cp.ascontiguousarray(w), gx, n,c,h,wi,oc,kh,kw,oh,ow,sh,sw,ph,pw), x.size)
     else:
@@ -391,8 +442,12 @@ def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
                 gy, w, stride=stride, pad=pad, dilation=dilation,
                 out_h=x.shape[2], out_w=x.shape[3],
             )
+    _conv_backward_phase_stop("gx_input_gradient", gx_start)
+    im2col_start = _conv_backward_phase_start()
     if use_custom_backward:
         col = im2col_forward(x, w.shape[2:], stride, pad, dilation, True)
+    elif use_raw_im2col:
+        col = im2col_forward(x, w.shape[2:], stride, pad, dilation, False)
     else:
         # Match the vectorized CuPy baseline for large weight gradients too;
         # the custom im2col kernel is retained for small operator probes.
@@ -401,6 +456,8 @@ def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
             x, (kh, kw), (sh, sw), (ph, pw), False,
             dilation=(dh, dw), xp=cp,
         )
+    _conv_backward_phase_stop("gw_im2col", im2col_start)
+    gw_start = _conv_backward_phase_start()
     if use_custom_backward:
         gmat = gy.transpose(0, 2, 3, 1).reshape(-1, w.shape[0])
         gw = gmat.T.dot(col).reshape(w.shape)
@@ -408,7 +465,10 @@ def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
         # Same contraction as Conv2DGradW; avoid an extra reshape/copy of the
         # large im2col matrix on every training batch.
         gw = cp.tensordot(gy, col, axes=((0, 2, 3), (0, 4, 5)))
+    _conv_backward_phase_stop("gw_contraction", gw_start)
+    gb_start = _conv_backward_phase_start()
     gb = gy.sum(axis=(0, 2, 3)) if b is not None else None
+    _conv_backward_phase_stop("gb_reduction", gb_start)
     return gx, gw, gb
 
 def maxpool_forward(x,kernel,stride=1,pad=0):

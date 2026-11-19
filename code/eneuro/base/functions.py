@@ -2305,9 +2305,12 @@ class GlobalAveragePooling(Function):
     
     def backward(self, gy):
         # 平均池化的梯度还要除以 H*W；CUDA 路径用同一公式逐元素写回。
-        if has_cupy and isinstance(gy, cp.ndarray) and _cuda_backend_enabled() and gy.dtype == cp.float32:
+        gy_data = gy.data if isinstance(gy, Tensor) else gy
+        if (has_cupy and isinstance(gy_data, cp.ndarray)
+                and _cuda_backend_enabled() and gy_data.dtype == cp.float32):
             from .cuda import global_average_pool_backward
-            gx = global_average_pool_backward(gy, self.input_shape)
+            gx = global_average_pool_backward(gy_data, self.input_shape)
+            return as_Tensor(gx)
         else:
             gx = broadcast_to(gy, self.input_shape) / (self.input_shape[2] * self.input_shape[3])
         return gx
@@ -2563,7 +2566,9 @@ class BatchNorm2d(Function):
         x_hat = self.x_hat
         if xp is not np and _cuda_backend_enabled() and x.dtype == cp.float32 and gys.dtype == cp.float32:
             from .cuda import batchnorm_backward
-            gx, ggamma, gbeta = batchnorm_backward(x, gys, mean.reshape(C), var.reshape(C), self.gamma, eps)
+            gx, ggamma, gbeta = batchnorm_backward(
+                x, gys.data, mean.reshape(C), var.reshape(C), self.gamma, eps
+            )
             return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)
         # 对 gamma 和 beta 的梯度
         gbeta = gys.sum(axis=(0, 2, 3), keepdims=False)  # (C,)

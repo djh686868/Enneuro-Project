@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "dataset": "C:\\Users\\ruiji\\Downloads\\car_behavioral_cloning_data\\data\\driving_log.csv",
+  "task": "ResNet18 steering regression: forward + backward + Adam",
+  "timing": "wall time per batch, including CPU-to-GPU input transfer and CUDA synchronization; image decoding excluded",
+  "input_selection": "seeded sample of chronological train split; all three cameras; no random flip",
+  "rows": 256,
+  "images": 768,
+  "batch_size": 8,
+  "steps_per_repeat": 24,
+  "repeats": 3,
+  "warmup_steps": 1,
+  "image_shape_chw": [
+    3,
+    32,
+    64
+  ],
+  "seed": 20261104,
+  "python": "3.13.5",
+  "numpy": "2.5.3",
+  "cupy": "14.2.0",
+  "gpu": "NVIDIA GeForce RTX 5060",
+  "cuda_c_note": "rawmodule mode may use CuPy fallback for large operators; native_kernel_launches shows actual custom kernels",
+  "results": {
+    "numpy": {
+      "status": "ok",
+      "device": "cpu",
+      "mean_batch_ms": 626.4064541666888,
+      "repeat_std_ms": 86.96599599475087,
+      "repeat_mean_batch_ms": [
+        742.196420833352,
+        604.4160583332617,
+        532.6068833334526
+      ],
+      "images_per_second": 12.77126049194757,
+      "initial_max_abs_error_vs_numpy": 0.0,
+      "first_batch_mse_for_gradient_check": 0.842876672744751,
+      "relative_gradient_l2_vs_numpy": 0.0,
+      "max_gradient_abs_error_vs_numpy": 0.0,
+      "first_batch_mse": 0.842876672744751,
+      "last_batch_mse": 0.8612595796585083
+    },
+    "cupy": {
+      "status": "ok",
+      "device": "cuda",
+      "mean_batch_ms": 129.46730555549695,
+      "repeat_std_ms": 2.985797370560696,
+      "repeat_mean_batch_ms": [
+        133.32924166657753,
+        129.01504166662411,
+        126.05763333328923
+      ],
+      "images_per_second": 61.79166211635378,
+      "initial_max_abs_error_vs_numpy": 2.086162567138672e-07,
+      "first_batch_mse_for_gradient_check": 0.8428781032562256,
+      "relative_gradient_l2_vs_numpy": 5.034504420285092e-06,
+      "max_gradient_abs_error_vs_numpy": 9.775161743164062e-06,
+      "first_batch_mse": 0.8428781032562256,
+      "last_batch_mse": 0.9093169569969177,
+      "speedup_vs_numpy": 4.838336995421411
+    },
+    "cuda_c": {
+      "status": "ok",
+      "device": "cuda",
+      "mean_batch_ms": 107.52023333327543,
+      "repeat_std_ms": 0.6931125141855493,
+      "repeat_mean_batch_ms": [
+        107.71931250000459,
+        108.25188749989441,
+        106.58949999992728
+      ],
+      "images_per_second": 74.40460043648505,
+      "initial_max_abs_error_vs_numpy": 2.086162567138672e-07,
+      "first_batch_mse_for_gradient_check": 0.8428781032562256,
+      "relative_gradient_l2_vs_numpy": 5.060260653118007e-06,
+      "max_gradient_abs_error_vs_numpy": 9.775161743164062e-06,
+      "first_batch_mse": 0.8428781032562256,
+      "last_batch_mse": 0.8571757674217224,
+      "native_kernel_launches": {
+        "bias_f32": 72,
+        "batchnorm_bwd_f32": 1224,
+        "im2col_f32": 1440
+      },
+      "speedup_vs_numpy": 5.8259402416384845,
+      "speedup_vs_cupy": 1.204120392430634
+    }
+  },
+  "numerical_check_passed": true
+}
