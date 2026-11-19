@@ -3,7 +3,7 @@
 import time
 import numpy as np
 
-from ..base import Tensor
+from ..base import Tensor, as_array
 from ..train.trainer import Trainer
 from .client import PSClient
 from .monitor import Monitor
@@ -38,8 +38,8 @@ def run_worker(rank, model_factory, dataset_factory, loss_fn, config, errors):
             for indices in batches:
                 step_start = time.perf_counter_ns()
                 samples = [dataset[index] for index in indices]
-                xb = Tensor.stack([Tensor(np.asarray(sample[0])) for sample in samples])
-                yb = Tensor.stack([Tensor(np.asarray(sample[1])) for sample in samples])
+                xb = Tensor.stack([Tensor(as_array(sample[0])) for sample in samples])
+                yb = Tensor.stack([Tensor(as_array(sample[1])) for sample in samples])
                 tick = time.perf_counter_ns()
                 loss, count, gradients = trainer.compute_batch_gradients(xb, yb)
                 monitor.log('compute', tick, step=global_step, loss=loss, sample_count=count)
