@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 import numpy as np
 
+from ..base import Tensor
 from ..nn.module import Sequential, Linear
 from ..nn.optim import SGD, Adam
 from ..nn.loss import meanSquaredError
@@ -24,7 +25,7 @@ class ToyDataset:
         return len(self.x)
 
     def __getitem__(self, index):
-        return self.x[index], self.y[index]
+        return Tensor(self.x[index]), Tensor(self.y[index])
 
 
 def make_model():

@@ -80,6 +80,29 @@ class Trainer:
         """从外部请求停止训练（用于 Web API 中途中断）。"""
         self._stop_requested = True
 
+    def _forward_loss(self, xb, yb, device):
+        xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
+        prediction = self.model(xb)
+        target_class = yb.argmax(axis=1) if yb.ndim > 1 else yb
+        target = yb if _is_multilabel(prediction, yb) else target_class
+        loss = self.loss_fn(prediction, target)
+        return xb, yb, prediction, target_class, target, loss
+
+    def compute_batch_gradients(self, xb, yb, device='cpu'):
+        """计算单批梯度；不更新参数，供单进程基线和 PS Worker 共用。"""
+        self.model.cleargrads()
+        xb, yb, prediction, _, _, loss = self._forward_loss(xb, yb, device)
+        loss.backward()
+        gradients = {}
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and param.grad is not None:
+                data = param.grad.data
+                gradients[name] = cp.asnumpy(data) if has_cupy and isinstance(data, cp.ndarray) else np.array(data, copy=True)
+        value = loss.data
+        if has_cupy and isinstance(value, cp.ndarray):
+            value = cp.asnumpy(value)
+        return float(np.asarray(value)), len(xb), gradients
+
     def init_early_stop(self, patience=5, mode='loss', min_delta=0.0, restore_best_weights=True):
         """
         初始化早停机制

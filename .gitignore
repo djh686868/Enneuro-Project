@@ -16,6 +16,8 @@ tests/test_donkey/data/
 tests/data.zip
 *.json
 *.png
+!doc/M2_MNIST_PS结果/*.png
+!doc/M2_AutoDrive_PS结果/*.png
 *.jpg
 *.jpeg
 !tests/artifacts/m1_09_environment.json
@@ -28,3 +30,5 @@ saved_models/
 # 本地车辆行为克隆数据
 /data/IMG/
 /data/driving_log.csv
+
+code/metrics/
