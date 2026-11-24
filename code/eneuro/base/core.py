@@ -507,13 +507,12 @@ class Mul(Function):
         return y
     
     def backward(self, gy):
-        # x0, x1 = self.inputs[0].data, self.inputs[1].data
-        gx0, gx1 = gy, gy
-        x0, x1 = self.inputs # cause gy is a variable now, you can use self.inputs to get the data
+        x0, x1 = self.inputs
+        gx0, gx1 = gy * x1, gy * x0
         if self.x0_shape != self.x1_shape:
             gx0 = f.sum_to(gx0, self.x0_shape)
             gx1 = f.sum_to(gx1, self.x1_shape)
-        return gx0 * x1, gx1 * x0
+        return gx0, gx1
 def mul(x0, x1):
     if not is_tensor(x1) and not is_array(x1):
         x1 = Tensor(x1, device=x0.device)
@@ -590,13 +589,12 @@ class Div(Function):
         return y
     
     def backward(self, gy):
-        # x0, x1 = self.inputs[0].data, self.inputs[1].data
-        gx0, gx1 = gy, gy
         x0, x1 = self.inputs
+        gx0, gx1 = gy / x1, -gy * x0 / (x1 * x1)
         if self.x0_shape != self.x1_shape:
             gx0 = f.sum_to(gx0, self.x0_shape)
             gx1 = f.sum_to(gx1, self.x1_shape)
-        return gx0 / x1, -gx1 * x0 / x1 ** 2
+        return gx0, gx1
 
 def div(x0, x1):
     if not is_tensor(x1) and not is_array(x1):
@@ -633,7 +631,7 @@ class Pow(Function):
         # x = self.inputs[0].data
         x = self.inputs[0]
         c = self.c
-        gx = c * x ** (c - 1) * gy
+        gx = (x ** (c - 1)) * c * gy
         return gx
 def pow(x, c):
     # 转换Tensor是为了将c的设备属性与x保持一致，避免在计算过程中出现设备不匹配的问题

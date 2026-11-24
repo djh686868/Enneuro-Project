@@ -62,12 +62,12 @@ extern "C" __global__ void pow_f32(const float* x, float* y, float exponent, int
 
 extern "C" __global__ void relu_f32(const float* x, float* y, int64_t n) {
     const int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (i < n) y[i] = x[i] > 0.0f ? x[i] : 0.0f;
+    if (i < n) y[i] = x[i] <= 0.0f ? 0.0f : x[i];
 }
 
 extern "C" __global__ void relu_bwd_f32(const float* x, const float* gy, float* gx, int64_t n) {
     const int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (i < n) gx[i] = x[i] > 0.0f ? gy[i] : 0.0f;
+    if (i < n) gx[i] = gy[i] * static_cast<float>(x[i] > 0.0f);
 }
 
 extern "C" __global__ void sigmoid_f32(const float* x, float* y, int64_t n) {
@@ -132,7 +132,8 @@ extern "C" __global__ void pool_f32(
     const int sample = static_cast<int>(t / channels);
 
     // Padding is zero to remain compatible with EnNeuro's im2col reference.
-    // Strict `>` retains the first location when values tie, matching argmax.
+    // Max propagates NaN and argmax selects its first occurrence. Finite
+    // ties also keep their first index.
     float best = 0.0f;
     int64_t best_local_index = 0;
     bool found = false;
@@ -144,7 +145,7 @@ extern "C" __global__ void pool_f32(
                 ? x[((static_cast<int64_t>(sample) * channels + channel) * height + ih) * width + iw]
                 : 0.0f;
             const int64_t local_index = static_cast<int64_t>(kh) * kernel_w + kw;
-            if (!found || value > best) {
+            if (!found || value > best || (isnan(value) && !isnan(best))) {
                 best = value;
                 best_local_index = local_index;
                 found = true;
@@ -277,8 +278,6 @@ extern "C" __global__ void winograd_f32(
         const int64_t wbase = (static_cast<int64_t>(oc) * channels + ic) * 9;
         const float g00=w[wbase],g01=w[wbase+1],g02=w[wbase+2],g10=w[wbase+3],g11=w[wbase+4],g12=w[wbase+5],g20=w[wbase+6],g21=w[wbase+7],g22=w[wbase+8];
         const float u00=g00,u01=.5f*(g00+g01+g02),u02=.5f*(g00-g01+g02),u03=g02;
-        const float u10=g10,u11=.5f*(g10+g11+g12),u12=.5f*(g10-g11+g12),u13=g12;
-        const float u20=g20,u21=.5f*(g20+g21+g22),u22=.5f*(g20-g21+g22),u23=g22;
         const float u30=g20,u31=.5f*(g20+g21+g22),u32=.5f*(g20-g21+g22),u33=g22;
         // Rows 1 and 2 of G are the half-sum/half-difference of filter rows;
         // the four columns below apply the same transform horizontally.

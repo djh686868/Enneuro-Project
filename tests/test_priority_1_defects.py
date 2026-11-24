@@ -6,7 +6,7 @@
 用法:
     python tests/test_priority_1_defects.py
 
-注意: CR-2 (Windows 多进程) 的复现脚本独立存放，因为会触发系统级崩溃。
+CR-2 用实际批次验证 Windows 下的异步加载。
 """
 
 import sys
@@ -389,28 +389,22 @@ def test_hi11_running_var_name():
 
 
 # ==============================================================================
-# CR-2: Windows 多进程递归派生 (源码检查，不实际触发)
+# CR-2: 验证异步加载无需启动子进程
 # ==============================================================================
 
-@test("CR-2: _AsyncLoaderIter 缺少 __main__ 保护")
 def test_cr2_windows_multiprocess_guard():
-    import inspect
-    import platform
-    from eneuro.data.dataloader import _AsyncLoaderIter
+    from eneuro.data import DataLoader
 
-    source = inspect.getsource(_AsyncLoaderIter.__init__)
-    has_process = 'Process(' in source
-    assert has_process, "源码不包含 Process( -- 可能已重构"
+    class LocalDataset:
+        def __len__(self):
+            return 3
 
-    has_main_guard = ('if __name__' in source) or ('__main__' in source)
+        def __getitem__(self, index):
+            return Tensor(index), Tensor(os.getpid())
 
-    if platform.system() == 'Windows' and not has_main_guard:
-        print(f"       CR-2 确认! Windows 上 _AsyncLoaderIter 使用 Process() 但无 __main__ 保护。")
-        print(f"       设置 num_workers > 0 会触发无限递归 spawn。")
-    elif not has_main_guard:
-        print(f"       当前平台 {platform.system()}, 缺少 __main__ 保护 (主要在 Windows 上触发)。")
-    else:
-        print(f"       源码包含 __main__ 保护 (可能已修复)。")
+    batches = list(DataLoader(LocalDataset(), batch_size=2, num_workers=2))
+    assert [xs.data.tolist() for xs, _ in batches] == [[0, 1], [2]]
+    assert all(np.all(pids.data == os.getpid()) for _, pids in batches)
 
 
 # ==============================================================================
@@ -429,8 +423,10 @@ if __name__ == "__main__":
     test_cr1_momentum_collision()
     test_cr1_mixed_optimizers()
 
-    section("CR-2: Windows 多进程递归派生 (源码检查)")
-    test_cr2_windows_multiprocess_guard()
+    section("CR-2: Windows 异步加载")
+    test("CR-2: 加载本地数据集无需派生子进程", expect_defect=False)(
+        test_cr2_windows_multiprocess_guard
+    )()
 
     section("CR-3: Parameter.backward 参数传递错误")
     test_cr3_parameter_backward()

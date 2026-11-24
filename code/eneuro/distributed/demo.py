@@ -1,6 +1,6 @@
-"""Small deterministic CPU workload for a PS smoke test and benchmarks.
+"""Small deterministic CPU workload for distributed smoke tests and benchmarks.
 
-Run from the code directory: python -m eneuro.distributed.demo --workers 2
+Run from the code directory: python -m eneuro.distributed.demo --backend ring --workers 2
 """
 
 import argparse
@@ -13,7 +13,7 @@ from ..base import Tensor
 from ..nn.module import Sequential, Linear
 from ..nn.optim import SGD, Adam
 from ..nn.loss import meanSquaredError
-from .launcher import DistributedConfig, launch
+from ..train import DistributedConfig, launch_distributed
 
 
 class ToyDataset:
@@ -47,16 +47,18 @@ def make_adam_optimizer(parameters):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--backend', choices=('ps', 'ring'), default='ps')
     parser.add_argument('--workers', type=int, default=2)
-    parser.add_argument('--port', type=int, default=29500)
-    parser.add_argument('--metrics-dir', type=Path, default=Path('metrics/ps-demo'))
+    parser.add_argument('--port', type=int, default=0, help='PS listener port (0 selects a free port)')
+    parser.add_argument('--metrics-dir', type=Path)
     args = parser.parse_args()
-    config = DistributedConfig(world_size=args.workers, port=args.port, metrics_dir=args.metrics_dir,
+    config = DistributedConfig(backend=args.backend, world_size=args.workers, port=args.port,
+                               metrics_dir=args.metrics_dir or Path('metrics') / f'{args.backend}-demo',
                                global_batch_size=4, shuffle=False, epochs=2)
     start = time.perf_counter()
-    result = launch(make_model, make_dataset, meanSquaredError, make_optimizer, config)
+    result = launch_distributed(make_model, make_dataset, meanSquaredError, make_optimizer, config)
     elapsed = time.perf_counter() - start
-    print(json.dumps({'workers': args.workers, 'steps': result['model_version'],
+    print(json.dumps({'backend': args.backend, 'workers': args.workers, 'steps': result['model_version'],
                       'job_samples_per_second': len(ToyDataset()) * config.epochs / elapsed,
                       'job_elapsed_s': elapsed}, indent=2))
 

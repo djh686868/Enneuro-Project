@@ -25,7 +25,7 @@ def send_message(sock, message, arrays=None):
     body = bytearray()
     descriptors = []
     for name in sorted(arrays):
-        array = np.ascontiguousarray(arrays[name])
+        array = np.asarray(arrays[name], order='C')
         if array.dtype.hasobject:
             raise ValueError('object arrays are not supported')
         descriptors.append({'name': name, 'shape': array.shape, 'dtype': array.dtype.str,

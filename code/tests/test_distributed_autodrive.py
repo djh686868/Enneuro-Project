@@ -1,6 +1,7 @@
 """Real-image smoke and multi-step equivalence checks for the PS AutoDriveNet."""
 
 import json
+import os
 import socket
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from eneuro.base import Tensor
-from eneuro.distributed.autodrive import (make_autodrive_model, make_optimizer,
+from eneuro.distributed.autodrive import (DEFAULT_DATA_DIR, make_autodrive_model, make_optimizer,
                                           make_steering_dataset)
 from eneuro.distributed.launcher import DistributedConfig, launch
 from eneuro.distributed.state import install_gradients, named_state
@@ -18,9 +19,13 @@ from eneuro.nn.loss import meanSquaredError
 from eneuro.train.trainer import Trainer
 
 
+DATA_DIR = Path(os.environ.get("ENNEURO_AUTODRIVE_DATA", DEFAULT_DATA_DIR))
+
+
+@unittest.skipUnless((DATA_DIR / "driving_log.csv").is_file(), "AutoDrive dataset unavailable")
 class AutoDrivePSTests(unittest.TestCase):
     def test_real_csv_sample_and_eager_model(self):
-        dataset = make_steering_dataset(limit=8)
+        dataset = make_steering_dataset(limit=8, data_dir=DATA_DIR)
         image, steering = dataset[0]
         self.assertEqual(image.shape, (3, 120, 160))
         self.assertEqual(image.dtype, np.float32)
@@ -41,7 +46,7 @@ class AutoDrivePSTests(unittest.TestCase):
             config = DistributedConfig(port=port, world_size=2, epochs=1,
                                        global_batch_size=4, shuffle=False,
                                        timeout_s=120, metrics_dir=metrics_dir)
-            factory = partial(make_steering_dataset, limit=8)
+            factory = partial(make_steering_dataset, limit=8, data_dir=DATA_DIR)
             actual = launch(make_autodrive_model, factory, meanSquaredError,
                             make_optimizer, config)
 

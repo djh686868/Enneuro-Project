@@ -13,11 +13,11 @@ from eneuro.distributed.aggregator import aggregate
 from eneuro.distributed.demo import make_model, make_dataset, make_optimizer, make_adam_optimizer
 from eneuro.distributed.launcher import DistributedConfig, launch
 from eneuro.distributed.partition import worker_batches
-from eneuro.distributed.protocol import send_message, recv_message
+from eneuro.distributed.protocol import MAX_HEADER, send_message, recv_message
 from eneuro.distributed.state import install_gradients, named_state
 from eneuro.nn.loss import meanSquaredError
 from eneuro.nn.loss import crossEntropyError
-from eneuro.distributed.mnist import make_lenet, make_mnist_dataset, make_optimizer as make_mnist_optimizer
+from eneuro.distributed.mnist import DEFAULT_MNIST_PATH, make_lenet, make_mnist_dataset, make_optimizer as make_mnist_optimizer
 from eneuro.train.trainer import Trainer
 from eneuro.data.dataloader import DataLoader
 from eneuro.data.dataset import Dataset
@@ -40,12 +40,15 @@ class DistributedPSTests(unittest.TestCase):
     def test_protocol_binary_roundtrip(self):
         left, right = socket.socketpair()
         try:
-            values = {'weight': np.arange(6, dtype=np.float32).reshape(2, 3)}
+            values = {'weight': np.arange(6, dtype=np.float32).reshape(2, 3),
+                      'scalar': np.array(0.25, dtype=np.float32)}
             send_message(left, {'type': 'PUSH', 'model_version': 2}, values)
             header, loaded, _ = recv_message(right)
             self.assertEqual(header['type'], 'PUSH')
             self.assertEqual(loaded['weight'].dtype, values['weight'].dtype)
             np.testing.assert_array_equal(loaded['weight'], values['weight'])
+            self.assertEqual(loaded['scalar'].shape, ())
+            np.testing.assert_array_equal(loaded['scalar'], values['scalar'])
         finally:
             left.close()
             right.close()
@@ -86,10 +89,7 @@ class DistributedPSTests(unittest.TestCase):
 
     def test_spawn_ps_matches_single_process(self):
         with tempfile.TemporaryDirectory() as directory:
-            with socket.socket() as sock:
-                sock.bind(('127.0.0.1', 0))
-                port = sock.getsockname()[1]
-            config = DistributedConfig(port=port, world_size=2, epochs=2, global_batch_size=4,
+            config = DistributedConfig(port=0, world_size=2, epochs=2, global_batch_size=4,
                                        shuffle=False, timeout_s=20, metrics_dir=Path(directory))
             actual = launch(make_model, make_dataset, meanSquaredError, make_optimizer, config)
             reference = make_model()
@@ -158,6 +158,20 @@ class DistributedPSTests(unittest.TestCase):
                 np.testing.assert_allclose(actual['parameters'][name], value, atol=1e-5, rtol=1e-5)
             self.assertTrue((Path(directory) / 'checkpoint.json').exists())
 
+    @unittest.skipUnless(DEFAULT_MNIST_PATH.is_file(), "MNIST dataset unavailable")
+    def test_large_adam_state_is_returned_to_caller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = DistributedConfig(port=0, world_size=2, global_batch_size=8,
+                                       shuffle=False, metrics_dir=Path(directory))
+            result = launch(make_lenet, partial(make_mnist_dataset, limit=8),
+                            crossEntropyError, make_adam_optimizer, config)
+        state = result['optimizer_state']
+        self.assertEqual(state['t'], result['model_version'])
+        self.assertEqual(state['t'], 1)
+        self.assertGreater(len(json.dumps(state, separators=(',', ':'))), MAX_HEADER)
+        self.assertEqual(set(result['parameters']), set(named_state(make_lenet())))
+
+    @unittest.skipUnless(DEFAULT_MNIST_PATH.is_file(), "MNIST dataset unavailable")
     def test_mnist_lenet_two_worker_step_matches_single_process(self):
         with tempfile.TemporaryDirectory() as directory:
             with socket.socket() as sock:

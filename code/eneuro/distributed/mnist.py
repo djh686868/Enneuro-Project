@@ -5,6 +5,7 @@ lazy weights; this module keeps the same layer dimensions while making every
 weight available to the parameter server at construction time.
 """
 
+import os
 import pickle
 from pathlib import Path
 
@@ -15,7 +16,10 @@ from ..nn.module import Module, Conv2d, Linear
 from ..nn.optim import SGD
 
 
-DEFAULT_MNIST_PATH = Path(__file__).resolve().parents[3] / 'tests' / 'testdata' / 'MNIST_data' / 'mnist.pkl'
+DEFAULT_MNIST_PATH = Path(os.environ.get(
+    'ENNEURO_MNIST_DATA',
+    Path(__file__).resolve().parents[3] / 'tests' / 'testdata' / 'MNIST_data' / 'mnist.pkl',
+))
 
 
 class MNISTTrainDataset:

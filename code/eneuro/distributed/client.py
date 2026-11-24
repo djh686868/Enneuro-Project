@@ -1,5 +1,6 @@
 """One-request TCP client for the local parameter server."""
 
+import json
 import socket
 from .protocol import send_message, recv_message
 
@@ -25,6 +26,8 @@ class PSClient:
             if self.connection is None:
                 self.connection = socket.create_connection((self.host, self.port), timeout=self.timeout)
                 self.connection.settimeout(self.timeout)
+            if message.get('type') == 'RESULT':
+                message = dict(message, optimizer_payload=True)
             sent = send_message(self.connection, message, arrays)
             reply, values, received = recv_message(self.connection)
         except (OSError, ValueError, ConnectionError):
@@ -32,4 +35,7 @@ class PSClient:
             raise
         if reply.get('type') == 'ERROR':
             raise RuntimeError(reply.get('message', 'parameter server error'))
+        if reply.get('type') == 'RESULT' and 'optimizer_payload_key' in reply:
+            optimizer_bytes = values.pop(reply.pop('optimizer_payload_key'))
+            reply['optimizer_state'] = json.loads(optimizer_bytes.tobytes())
         return reply, values, sent, received
