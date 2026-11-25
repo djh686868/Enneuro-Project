@@ -92,7 +92,7 @@ class Layer:
         return list(params_dict.values())
 
     def named_parameters(self):
-        """稳定的完整参数名；包含 BatchNorm 等非训练状态。"""
+        """Yield full parameter names in the same order across spawned processes."""
         params_dict = {}
         self._flatten_params(params_dict)
         for name in sorted(params_dict):

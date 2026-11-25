@@ -59,6 +59,19 @@ def _launch_count_delta(before, after):
     }
 
 
+def _cuda_backward(operator, backward, *args):
+    mode = operator._cuda_backend_mode
+    try:
+        with _temporary_cuda_backend(mode):
+            return backward(*args)
+    except Exception as exc:
+        if mode != 'auto':
+            raise
+        operator._backend_fallback_reason = f'{type(exc).__name__}: {exc}'
+        with _temporary_cuda_backend('cupy'):
+            return backward(*args)
+
+
 def get_backend_capabilities():
     """Return availability information used by M1-09 benchmark/reporting."""
     cupy_available = False
@@ -1131,6 +1144,8 @@ class Conv2d(Function):
 
         weight_data = W.data if isinstance(W, Tensor) else W
         requested = self.backend
+        self._backend_fallback_reason = None
+        self._backend_launch_counts = {}
         if requested == 'numpy' and (
                 not isinstance(x, np.ndarray)
                 or not isinstance(weight_data, np.ndarray)):
@@ -1168,7 +1183,7 @@ class Conv2d(Function):
                     else get_backend()
                 )
                 self._cuda_fast_path = True
-                self._cuda_backend_mode = 'cuda_c'
+                self._cuda_backend_mode = selected_mode
                 with _temporary_cuda_backend(selected_mode):
                     result = conv2d_forward(
                         x,
@@ -1197,10 +1212,13 @@ class Conv2d(Function):
                 self._cuda_fast_path = False
                 self._backend_fallback_reason = f'{type(exc).__name__}: {exc}'
                 from .cuda import get_backend
-                if explicit_cuda_c or get_backend() == 'rawmodule':
+                if (explicit_cuda_c or
+                        (not requested_auto and get_backend() == 'rawmodule')):
                     raise
         self._cuda_fast_path = False
-        if wants_cuda_c and (
+        if self._backend_fallback_reason:
+            self._backend_effective = 'cupy_fallback'
+        elif wants_cuda_c and (
                 has_cupy and isinstance(x, cp.ndarray)
                 and getattr(self, 'dilation', (1, 1)) != (1, 1)):
             self._backend_effective = 'cupy_fallback'
@@ -1238,17 +1256,11 @@ class Conv2d(Function):
         x, W, b = self.inputs
         if getattr(self, '_cuda_fast_path', False):
             from .cuda import conv2d_backward
-            with _temporary_cuda_backend(
-                    getattr(self, '_cuda_backend_mode', 'cuda_c')):
-                gx, gW, gb = conv2d_backward(
-                    gys.data,
-                    x.data,
-                    W.data,
-                    b.data if isinstance(b, Tensor) else b,
-                    self.stride,
-                    self.pad,
-                    self.dilation,
-                )
+            gx, gW, gb = _cuda_backward(
+                self, conv2d_backward, gys.data, x.data, W.data,
+                b.data if isinstance(b, Tensor) else b,
+                self.stride, self.pad, self.dilation,
+            )
             return as_Tensor(gx), as_Tensor(gW), as_Tensor(gb) if gb is not None else None
         if getattr(self, '_used_winograd', False):
             self._used_winograd_backward = True
@@ -2106,6 +2118,8 @@ class Pooling(Function):
     def forward(self, *xs):
         x = xs[0]
         requested = self.backend
+        self._backend_fallback_reason = None
+        self._backend_launch_counts = {}
         if requested == 'numpy' and not isinstance(x, np.ndarray):
             raise ValueError("backend='numpy' requires a NumPy input")
         if requested in ('cupy', 'cuda_c') and (
@@ -2142,7 +2156,7 @@ class Pooling(Function):
                     )
                 self.indexes = indexes
                 self._cuda_fast_path = True
-                self._cuda_backend_mode = 'cuda_c'
+                self._cuda_backend_mode = selected_mode
                 self._backend_launch_counts = _launch_count_delta(
                     before, launch_counts()
                 )
@@ -2162,11 +2176,13 @@ class Pooling(Function):
                 self._cuda_fast_path = False
                 self._backend_fallback_reason = f'{type(exc).__name__}: {exc}'
                 from .cuda import get_backend
-                if explicit_cuda_c or get_backend() == 'rawmodule':
+                if (explicit_cuda_c or
+                        (not requested_auto and get_backend() == 'rawmodule')):
                     raise
         self._cuda_fast_path = False
         self._backend_effective = (
-            'cupy' if has_cupy and isinstance(x, cp.ndarray) else 'numpy'
+            'cupy_fallback' if self._backend_fallback_reason
+            else 'cupy' if has_cupy and isinstance(x, cp.ndarray) else 'numpy'
         )
         col = im2col_array(x, self.kernel_size, self.stride, self.pad,
                            to_matrix=False)
@@ -2197,12 +2213,10 @@ class Pooling2DGrad(Function):
         gy = xs[0]
         if getattr(self.mpool2d, '_cuda_fast_path', False):
             from .cuda import maxpool_backward
-            with _temporary_cuda_backend(
-                    getattr(self.mpool2d, '_cuda_backend_mode', 'cuda_c')):
-                return maxpool_backward(
-                    gy, self.indexes, self.input_shape,
-                    self.kernel_size, self.stride, self.pad,
-                )
+            return _cuda_backward(
+                self.mpool2d, maxpool_backward, gy, self.indexes,
+                self.input_shape, self.kernel_size, self.stride, self.pad,
+            )
         
 
         N, C, OH, OW = gy.shape
@@ -2304,13 +2318,13 @@ class GlobalAveragePooling(Function):
         return y
     
     def backward(self, gy):
-        # 平均池化的梯度还要除以 H*W；CUDA 路径用同一公式逐元素写回。
-        if has_cupy and isinstance(gy, cp.ndarray) and _cuda_backend_enabled() and gy.dtype == cp.float32:
+        if (not Config.enable_backprop and has_cupy
+                and isinstance(gy.data, cp.ndarray) and gy.dtype == cp.float32):
             from .cuda import global_average_pool_backward
-            gx = global_average_pool_backward(gy, self.input_shape)
-        else:
-            gx = broadcast_to(gy, self.input_shape) / (self.input_shape[2] * self.input_shape[3])
-        return gx
+            gx = global_average_pool_backward(gy.data, self.input_shape)
+            return Tensor(gx, device=gy.device)
+        spatial = self.input_shape[2] * self.input_shape[3]
+        return broadcast_to(gy, self.input_shape) / spatial
 
 def global_average_pooling(x):
     return GlobalAveragePooling()(x)
@@ -2462,39 +2476,22 @@ class BatchNorm2d(Function):
         #print(f"x.dtype = {x.dtype}")
         N, C, H, W = x.shape
         self.x_shape = x.shape
-        self.x = x
 
         # 计算当前 batch 的均值和方差
         # 在通道维度上计算，保留 H,W 用于广播
-        mean = x.mean(axis=(0, 2, 3), keepdims=True)  # (1, C, 1, 1)
-        var = x.var(axis=(0, 2, 3), keepdims=True)   # (1, C, 1, 1)
-
-        # 更新 running 统计量（训练时）
-        if Config.train:
-            # 优先从running_mean获取数组模块（因为它在GPU上）
-            # 如果running_mean是numpy，则使用numpy
+        self.training = Config.train
+        if self.training:
+            mean = x.mean(axis=(0, 2, 3), keepdims=True)
+            var = x.var(axis=(0, 2, 3), keepdims=True)
             running_mean_data = self.running_mean.data
             xp = get_array_module(running_mean_data)
-
-            # 确保所有数组都是xp类型
-            if xp is not np:
-                # 使用to_xp确保所有数组都正确转换
-                m = to_xp(mean.reshape(C), xp)
-                v = to_xp(var.reshape(C), xp)
-                running_mean_data = to_xp(running_mean_data, xp)
-                running_var_data = to_xp(self.running_var.data, xp)
-                # Keep running statistics in the parameter dtype.  CuPy can
-                # promote an array by a Python scalar, which would otherwise
-                # make all downstream gradients float64.
-                stats_dtype = running_mean_data.dtype
-                momentum = xp.asarray(self.momentum, dtype=stats_dtype)
-                one_minus_momentum = xp.asarray(1, dtype=stats_dtype) - momentum
-            else:
-                m = mean.reshape(C)
-                v = var.reshape(C)
-                running_var_data = self.running_var.data
-                momentum = np.asarray(self.momentum, dtype=running_mean_data.dtype)
-                one_minus_momentum = np.asarray(1, dtype=running_mean_data.dtype) - momentum
+            running_var_data = to_xp(self.running_var.data, xp)
+            m = to_xp(mean.reshape(C), xp)
+            v = to_xp(var.reshape(C), xp)
+            # Match the running statistics' dtype to avoid promoting float32 updates.
+            stats_dtype = running_mean_data.dtype
+            momentum = xp.asarray(self.momentum, dtype=stats_dtype)
+            one_minus_momentum = xp.asarray(1, dtype=stats_dtype) - momentum
 
             new_mean = momentum * running_mean_data + one_minus_momentum * m
             new_var = momentum * running_var_data + one_minus_momentum * v
@@ -2503,15 +2500,10 @@ class BatchNorm2d(Function):
             self.running_mean.data = new_mean
             self.running_var.data = new_var
 
-            # 保存当前 batch 的统计量用于反向传播
-            self.mean = mean
-            self.var = var
         else:
             # 测试模式：使用 running 统计量，形状广播到 (1, C, 1, 1)
             mean = self.running_mean.data.reshape(1, C, 1, 1)
             var = self.running_var.data.reshape(1, C, 1, 1)
-            self.mean = mean
-            self.var = var
 
         # 归一化
         # 优先从running_mean获取xp，确保一致性
@@ -2531,15 +2523,17 @@ class BatchNorm2d(Function):
             gamma_data = gamma
             beta_data = beta
 
+        self.mean = mean
+        self.var = var
+        self.x = x
         if xp is not np and _cuda_backend_enabled() and x.dtype == cp.float32:
             from .cuda import batchnorm_forward
             out = batchnorm_forward(x, mean.reshape(C), var.reshape(C), gamma_data, beta_data, self.eps)
-            x_hat = (x - mean) / xp.sqrt(var + self.eps)
+            self.x_hat = None
         else:
-            x_hat = (x - mean) / xp.sqrt(var + self.eps)
+            self.x_hat = (x - mean) / xp.sqrt(var + self.eps)
             # 缩放和偏移
-            out = gamma_data.reshape(1, C, 1, 1) * x_hat + beta_data.reshape(1, C, 1, 1)
-        self.x_hat = x_hat
+            out = gamma_data.reshape(1, C, 1, 1) * self.x_hat + beta_data.reshape(1, C, 1, 1)
         self.gamma = gamma_data
         return out
 
@@ -2554,23 +2548,29 @@ class BatchNorm2d(Function):
 
         # 计算中间变量
         xp = get_array_module(x)
+        if (self.training and xp is not np and _cuda_backend_enabled()
+                and x.dtype == cp.float32 and gys.dtype == cp.float32):
+            from .cuda import batchnorm_backward
+            gx, ggamma, gbeta = batchnorm_backward(
+                x, as_array(gys), mean.reshape(C), var.reshape(C), self.gamma, eps,
+            )
+            return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)
         # Explicitly cast the constants to the activation dtype.  This is
         # required for CuPy float32 training because scalar promotion here
         # would otherwise create float64 gradients for the whole graph.
         dtype = x.dtype
         eps_value = xp.asarray(eps, dtype=dtype)
         std_inv = xp.asarray(1, dtype=dtype) / xp.sqrt(var + eps_value)
-        x_hat = self.x_hat
-        if xp is not np and _cuda_backend_enabled() and x.dtype == cp.float32 and gys.dtype == cp.float32:
-            from .cuda import batchnorm_backward
-            gx, ggamma, gbeta = batchnorm_backward(x, gys, mean.reshape(C), var.reshape(C), self.gamma, eps)
-            return as_Tensor(gx), as_Tensor(ggamma), as_Tensor(gbeta)
+        x_hat = self.x_hat if self.x_hat is not None else (x - mean) * std_inv
         # 对 gamma 和 beta 的梯度
         gbeta = gys.sum(axis=(0, 2, 3), keepdims=False)  # (C,)
         ggamma = (gys * x_hat).sum(axis=(0, 2, 3), keepdims=False)  # (C,)
 
         # 对 x_hat 的梯度
         gx_hat = gys * gamma
+        if not self.training:
+            # In evaluation mode the running statistics are constants in dy/dx.
+            return as_Tensor(gx_hat * std_inv), as_Tensor(ggamma), as_Tensor(gbeta)
         # 对 var 的梯度
         half = xp.asarray(-0.5, dtype=dtype)
         two = xp.asarray(2, dtype=dtype)
@@ -2740,18 +2740,17 @@ class FusedConvBNReLU(Function):
 
         # ---------- 2. 批量归一化 ----------
         # 计算均值和方差 (在 (N, H, W) 维度上)
-        mean = conv_out.mean(axis=(0,2,3), keepdims=True)   # (1, OC, 1, 1)
-        var = conv_out.var(axis=(0,2,3), keepdims=True)     # (1, OC, 1, 1)
-
-        # 训练时更新 running 统计量
-        if Config.train:
+        self.training = Config.train
+        stats_device = "cpu" if xp is np else "cuda"
+        if self.running_mean is None:
+            self.running_mean = Tensor(xp.zeros(OC, dtype="float32"), device=stats_device, name="running_mean")
+        if self.running_var is None:
+            self.running_var = Tensor(xp.ones(OC, dtype="float32"), device=stats_device, name="running_var")
+        if self.training:
+            mean = conv_out.mean(axis=(0, 2, 3), keepdims=True)
+            var = conv_out.var(axis=(0, 2, 3), keepdims=True)
             m = mean.reshape(OC)
             v = var.reshape(OC)
-            
-            if self.running_mean is None:
-                self.running_mean = Tensor(xp.zeros(OC, dtype='float32'), requires_grad=False, name='running_mean')
-            if self.running_var is None:
-                self.running_var = Tensor(xp.ones(OC, dtype='float32'), requires_grad=False, name='running_mean')
 
             self.running_mean.data = self.momentum * self.running_mean.data + (1 - self.momentum) * m
             self.running_var.data  = self.momentum * self.running_var.data  + (1 - self.momentum) * v
@@ -2759,11 +2758,6 @@ class FusedConvBNReLU(Function):
             self.var = var
         else:
             # 测试模式：使用 running 统计量
-            if self.running_mean is None:
-                self.running_mean = Tensor(xp.zeros(OC, dtype='float32'), requires_grad=False, name='running_mean')
-            if self.running_var is None:
-                self.running_var = Tensor(xp.ones(OC, dtype='float32'), requires_grad=False, name='running_mean')
-
             mean = self.running_mean.data.reshape(1, OC, 1, 1)
             var = self.running_var.data.reshape(1, OC, 1, 1)
             self.mean = mean
@@ -2796,12 +2790,9 @@ class FusedConvBNReLU(Function):
         # ---------- 2. BN 梯度 ----------
         x = self.conv_out               # 卷积输出，BN 的输入
         gamma = self.gamma.reshape(1, -1, 1, 1)
-        mean = self.mean
-        var = self.var
-        eps = self.eps
         N, C, H, W = x.shape
         M = N * H * W   # 每个通道的像素总数
-        OC, _, KH, KW = self.W.shape
+        KH, KW = self.W.shape[2:]
         
         xp = get_array_module(x)
 
@@ -2811,12 +2802,11 @@ class FusedConvBNReLU(Function):
 
         # 对 x_hat 的梯度
         gx_hat = g_relu * gamma
-        # 对方差和均值的梯度
-        gvar = (gx_hat * (x - mean) * (-0.5) * self.std_inv**3).sum(axis=(0,2,3), keepdims=True)
-        gmean = (gx_hat * (-self.std_inv)).sum(axis=(0,2,3), keepdims=True) + \
-                gvar * (-2.0 / M) * (x - mean).sum(axis=(0,2,3), keepdims=True)
-        # 对 BN 输入（即卷积输出）的梯度
-        g_conv_out = gx_hat * self.std_inv + gvar * (2.0 / M) * (x - mean) + gmean / M
+        g_conv_out = gx_hat * self.std_inv
+        if self.training:
+            # Only batch statistics depend on the convolution output.
+            correction = gbeta.reshape(1, C, 1, 1) + self.x_hat * ggamma.reshape(1, C, 1, 1)
+            g_conv_out -= gamma * self.std_inv * (correction / M)
 
         # ---------- 3. 卷积梯度 ----------
         # 使用卷积的反向传播公式

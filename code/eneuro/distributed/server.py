@@ -1,5 +1,6 @@
 """Synchronous parameter server: exactly one optimizer update per global step."""
 
+import json
 import socketserver
 import threading
 import time
@@ -11,9 +12,10 @@ from .state import named_state, install_gradients
 
 
 class ServerState:
-    def __init__(self, model, optimizer, world_size, timeout, monitor):
+    def __init__(self, model, optimizer, world_size, timeout, monitor, last_update=None):
         self.model, self.optimizer = model, optimizer
         self.world_size, self.timeout, self.monitor = world_size, timeout, monitor
+        self.last_update = last_update
         self.condition = threading.Condition()
         self.registered = set()
         self.pending = {}
@@ -49,8 +51,22 @@ class ServerState:
             return self._push(message, arrays)
         if kind == 'RESULT':
             with self.condition:
-                return {'type': 'RESULT', 'model_version': self.version,
-                        'optimizer_state': self.optimizer.to_dict()}, named_state(self.model)
+                reply = {'type': 'RESULT', 'model_version': self.version}
+                values = named_state(self.model)
+                state = self.optimizer.to_dict()
+                # Old clients expect inline JSON. New clients can carry large
+                # Adam/Momentum states in the body, outside the 1 MiB header.
+                if message.get('optimizer_payload'):
+                    import numpy as np
+                    key = '__optimizer_state__'
+                    while key in values:
+                        key += '_'
+                    encoded = json.dumps(state, separators=(',', ':'), allow_nan=False).encode('utf-8')
+                    values[key] = np.frombuffer(encoded, dtype=np.uint8)
+                    reply['optimizer_payload_key'] = key
+                else:
+                    reply['optimizer_state'] = state
+                return reply, values
         if kind == 'SHUTDOWN':
             self.shutting_down = True
             return {'type': 'SHUTDOWN_ACK'}, {}
@@ -87,6 +103,8 @@ class ServerState:
                     self.model.cleargrads()
                     self.pending.clear()
                     self.version += 1
+                    if self.last_update is not None:
+                        self.last_update.value = time.monotonic()
                     self.monitor.log('aggregate_update', tick, step=step)
                     self.condition.notify_all()
                 except Exception as exc:
@@ -142,7 +160,7 @@ class _TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     request_queue_size = 128
 
 
-def run_server(model_factory, optimizer_factory, config, ready, errors):
+def run_server(model_factory, optimizer_factory, config, ready, errors, bound_port=None, last_update=None):
     try:
         import numpy as np
         np.random.seed(config.seed)
@@ -151,9 +169,11 @@ def run_server(model_factory, optimizer_factory, config, ready, errors):
             raise ValueError('model parameters must be initialized before PS startup')
         optimizer = optimizer_factory(model.get_params_list())
         monitor = Monitor(config.metrics_dir / 'ps.jsonl', 'ps')
-        state = ServerState(model, optimizer, config.world_size, config.timeout_s, monitor)
+        state = ServerState(model, optimizer, config.world_size, config.timeout_s, monitor, last_update)
         with _TCPServer((config.host, config.port), _Handler) as server:
             server.state = state
+            if bound_port is not None:
+                bound_port.value = server.server_address[1]
             ready.set()
             server.serve_forever(poll_interval=0.1)
     except Exception as exc:

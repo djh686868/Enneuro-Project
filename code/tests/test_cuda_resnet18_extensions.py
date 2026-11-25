@@ -55,3 +55,24 @@ def test_batchnorm_and_global_average_pooling_match_cupy():
     np.testing.assert_allclose(cp.asnumpy(y), cp.asnumpy(ref), rtol=2e-5, atol=3e-5)
     pooled = dispatch.global_average_pool_forward(x)
     np.testing.assert_allclose(cp.asnumpy(pooled), cp.asnumpy(x.mean((2, 3), keepdims=True)), rtol=1e-6, atol=1e-6)
+
+
+def test_batchnorm_backward_with_float64_variance():
+    _require_gpu()
+    x = cp.arange(8, dtype=cp.float32).reshape(1, 2, 2, 2)
+    gy = x + cp.float32(1)
+    axes = (0, 2, 3)
+    mean = x.mean(axes)
+    var = x.var(axes).astype(cp.float64)
+    gamma = cp.array([2, -1], dtype=cp.float32)
+    previous = dispatch.get_backend()
+    try:
+        dispatch.set_backend("cupy")
+        expected = dispatch.batchnorm_backward(x, gy, mean, var, gamma)
+        dispatch.set_backend("rawmodule")
+        actual = dispatch.batchnorm_backward(x, gy, mean, var, gamma)
+    finally:
+        dispatch.set_backend(previous)
+    for result, reference in zip(actual, expected):
+        assert result.dtype == reference.dtype
+        cp.testing.assert_allclose(result, reference)

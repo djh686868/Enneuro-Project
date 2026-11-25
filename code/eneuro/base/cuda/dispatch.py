@@ -99,6 +99,8 @@ def _raw_enabled():
 
 
 def _call(name, args, n):
+    if n == 0:
+        return
     # 统一使用 256 threads/block；grid 采用 ceil(n/256)，最后一个 block
     # 通过 kernel 内的 i<n 判断处理尾部元素，避免越界写入。
     # 源码中均为 extern "C" 名称；整个 RawModule 仅编译一次，函数句柄也
@@ -112,6 +114,8 @@ def _call(name, args, n):
 
 
 def _call_extra(name, args, n):
+    if n == 0:
+        return
     kernel = _EXTRA_FUNCTIONS.get(name)
     if kernel is None:
         if not _EXTRA_SRC:
@@ -130,8 +134,10 @@ def _unary(x, name, fallback):
         _LAST.update(actual_backend="cupy", fallback_reason="backend_or_dtype")
         return fallback(x)
     try:
-        x = cp.ascontiguousarray(x); y = cp.empty_like(x)
-        _call(name, (x, y, np.int64(x.size)), x.size)
+        # CuPy promotes scalars to shape (1,) in ascontiguousarray.
+        # Allocate from the logical shape, then pack only the kernel inputs.
+        y = cp.empty(x.shape, dtype=x.dtype)
+        _call(name, (cp.ascontiguousarray(x), y, np.int64(x.size)), x.size)
         _LAST.update(actual_backend="rawmodule", fallback_reason=None, last_error=None)
         return y
     except Exception as exc:
@@ -149,8 +155,9 @@ def _binary(a, b, name, fallback):
         _LAST.update(actual_backend="cupy", fallback_reason="backend_dtype_or_broadcast")
         return fallback(a, b)
     try:
-        a, b = cp.ascontiguousarray(a), cp.ascontiguousarray(b); y = cp.empty_like(a)
-        _call(name, (a, b, y, np.int64(a.size)), a.size)
+        y = cp.empty(a.shape, dtype=a.dtype)
+        _call(name, (cp.ascontiguousarray(a), cp.ascontiguousarray(b), y,
+                     np.int64(a.size)), a.size)
         _LAST.update(actual_backend="rawmodule", fallback_reason=None, last_error=None)
         return y
     except Exception as exc:
@@ -188,7 +195,7 @@ def bias_add_forward(x, bias):
         return x + (bias.reshape((1, c) if x.ndim == 2 else (1, c, 1, 1)))
     try:
         x = cp.ascontiguousarray(x); bias = cp.ascontiguousarray(bias); y = cp.empty_like(x)
-        _call("bias_f32", (x, bias, y, np.int64(x.size), np.int64(c), np.int64(s)), x.size)
+        _call("bias_f32", (x, bias, y, np.int64(n), np.int64(c), np.int64(s)), x.size)
         return y
     except Exception:
         if _BACKEND == "rawmodule": raise
@@ -200,7 +207,10 @@ def pow_forward(x, exponent):
             or int(x.size) > _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE):
         return cp.power(x, exponent)
     try:
-        x=cp.ascontiguousarray(x); y=cp.empty_like(x); _call("pow_f32",(x,y,np.float32(exponent),np.int64(x.size)),x.size); return y
+        y = cp.empty(x.shape, dtype=x.dtype)
+        _call("pow_f32", (cp.ascontiguousarray(x), y, np.float32(exponent),
+                          np.int64(x.size)), x.size)
+        return y
     except Exception:
         if _BACKEND == "rawmodule": raise
         return cp.power(x, exponent)
@@ -208,10 +218,14 @@ def pow_forward(x, exponent):
 def relu_forward(x): return _unary(x,"relu_f32",lambda a:cp.maximum(a,0))
 def relu_backward(x,gy):
     if (not _raw_enabled() or x.dtype != cp.float32 or gy.dtype != cp.float32
+            or x.shape != gy.shape
             or int(x.size) > _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE):
         return gy*(x>0)
     try:
-        x,gy=cp.ascontiguousarray(x),cp.ascontiguousarray(gy); gx=cp.empty_like(x); _call("relu_bwd_f32",(x,gy,gx,np.int64(x.size)),x.size); return gx
+        gx = cp.empty(x.shape, dtype=x.dtype)
+        _call("relu_bwd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(gy),
+                               gx, np.int64(x.size)), x.size)
+        return gx
     except Exception:
         if _BACKEND == "rawmodule": raise
         return gy*(x>0)
@@ -254,9 +268,17 @@ def _vectorized_conv2d_forward(x, w, b, stride, pad, dilation, standard_3x3):
         return fn.gemm_conv2d_forward(x, w, b)
     return fn.im2col_conv2d_forward(x, w, b)
 
+def _check_conv2d_input(x, w):
+    if x.ndim != 4 or w.ndim != 4:
+        raise ValueError("conv2d expects a 4-D NCHW input and 4-D OIHW weights")
+    if x.shape[1] != w.shape[1]:
+        raise ValueError(f"input has {x.shape[1]} channels but weights expect {w.shape[1]}")
+
+
 def conv2d_forward(x,w,b=None,stride=1,pad=0,dilation=1):
     # 小张量的标准 3x3 卷积走 CUDA C Winograd；大张量复用 CuPy 的
     # 形状选择（FFT/GEMM/im2col/向量化 Winograd），避免低占用 kernel。
+    _check_conv2d_input(x, w)
     sh,sw=(int(stride),)*2 if np.isscalar(stride) else tuple(map(int,stride))
     ph,pw=(int(pad),)*2 if np.isscalar(pad) else tuple(map(int,pad))
     dh,dw=(int(dilation),)*2 if np.isscalar(dilation) else tuple(map(int,dilation))
@@ -280,6 +302,11 @@ def conv2d_forward(x,w,b=None,stride=1,pad=0,dilation=1):
 
 def winograd_conv2d_forward(x, w, b=None):
     """CUDA C Winograd F(2x2,3x3) forward; inputs are contiguous float32 NCHW."""
+    _check_conv2d_input(x, w)
+    if w.shape[2:] != (3, 3):
+        raise ValueError("the Winograd kernel requires 3x3 weights")
+    if x.dtype != cp.float32 or w.dtype != cp.float32:
+        raise TypeError("the Winograd kernel requires float32 inputs and weights")
     n,c,h,wi=map(int,x.shape); oc=int(w.shape[0]); oh,ow=h,wi
     y=cp.empty((n,oc,oh,ow),dtype=cp.float32)
     _call_extra("winograd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(w), y,
@@ -291,31 +318,50 @@ def winograd_conv2d_forward(x, w, b=None):
 
 def batchnorm_forward(x, mean, var, gamma, beta, eps=1e-5):
     """Normalize NCHW float32 data with a CUDA C elementwise kernel."""
-    eps_value = cp.asarray(eps, dtype=x.dtype)
+    n, c, h, w = x.shape
+    mean, var, gamma, beta = (a.reshape(c) for a in (mean, var, gamma, beta))
     if (not _raw_enabled()
             or any(a.dtype != cp.float32 for a in (x, mean, var, gamma, beta))
             or int(x.size) > _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE):
+        eps_value = cp.asarray(eps, dtype=x.dtype)
         return (gamma.reshape(1,-1,1,1) *
                 (x-mean.reshape(1,-1,1,1)) /
                 cp.sqrt(var.reshape(1,-1,1,1) + eps_value) +
                 beta.reshape(1,-1,1,1))
-    n,c,h,w=map(int,x.shape); y=cp.empty_like(x); spatial=h*w
-    _call_extra("batchnorm_fwd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(mean.reshape(-1)), cp.ascontiguousarray(var.reshape(-1)), cp.ascontiguousarray(gamma.reshape(-1)), cp.ascontiguousarray(beta.reshape(-1)), y, np.int64(n), np.int64(c), np.int64(spatial), np.float32(eps)), x.size)
+    # The kernel writes by flat NCHW index, even when x is a transposed view.
+    y = cp.empty(x.shape, dtype=x.dtype)
+    _call_extra("batchnorm_fwd_f32", (
+        cp.ascontiguousarray(x), cp.ascontiguousarray(mean), cp.ascontiguousarray(var),
+        cp.ascontiguousarray(gamma), cp.ascontiguousarray(beta), y,
+        np.int64(n), np.int64(c), np.int64(h * w), np.float32(eps),
+    ), x.size)
     return y
 
 def batchnorm_backward(x, gy, mean, var, gamma, eps=1e-5):
     """BatchNorm backward with CuPy channel reductions and CUDA C gx kernel."""
-    n,c,h,w=map(int,x.shape); spatial=h*w
+    if gy.shape != x.shape:
+        raise ValueError("BatchNorm output gradient must have the same shape as its input")
+    n, c, h, w = x.shape
+    spatial = h * w
     dtype = x.dtype
-    mean1=mean.reshape(1,c,1,1); var1=var.reshape(1,c,1,1)
+    gamma = gamma.reshape(c)
+    mean1 = mean.reshape(1, c, 1, 1)
+    var1 = var.reshape(1, c, 1, 1)
     eps_value = cp.asarray(eps, dtype=dtype)
-    inv=cp.asarray(1, dtype=dtype)/cp.sqrt(var1+eps_value)
-    xhat=(x-mean1)*inv
-    gbeta=gy.sum(axis=(0,2,3)); ggamma=(gy*xhat).sum(axis=(0,2,3)); gx=cp.empty_like(x)
+    inv = cp.asarray(1, dtype=dtype) / cp.sqrt(var1 + eps_value)
+    xhat = (x - mean1) * inv
+    gbeta = gy.sum(axis=(0, 2, 3))
+    ggamma = (gy * xhat).sum(axis=(0, 2, 3))
     if (_raw_enabled()
-            and all(a.dtype == cp.float32 for a in (x,gy,mean,gamma))
+            and all(a.dtype == cp.float32 for a in (x, gy, mean, var, gamma))
             and int(x.size) <= _RAW_CUSTOM_ELEMENTWISE_MAX_SIZE):
-        _call_extra("batchnorm_bwd_f32", (cp.ascontiguousarray(x), cp.ascontiguousarray(gy), cp.ascontiguousarray(mean.reshape(-1)), cp.ascontiguousarray(inv.reshape(-1)), cp.ascontiguousarray(gamma.reshape(-1)), cp.ascontiguousarray(gbeta), cp.ascontiguousarray(ggamma), gx, np.int64(n), np.int64(c), np.int64(spatial)), x.size)
+        gx = cp.empty(x.shape, dtype=dtype)
+        _call_extra("batchnorm_bwd_f32", (
+            cp.ascontiguousarray(x), cp.ascontiguousarray(gy), cp.ascontiguousarray(mean.reshape(c)),
+            cp.ascontiguousarray(inv.reshape(c)), cp.ascontiguousarray(gamma),
+            cp.ascontiguousarray(gbeta), cp.ascontiguousarray(ggamma), gx,
+            np.int64(n), np.int64(c), np.int64(spatial),
+        ), x.size)
     else:
         m=cp.asarray(n*spatial, dtype=dtype)
         gx=(gamma.reshape(1,c,1,1)*inv*
@@ -351,7 +397,10 @@ def conv2d_backward(gy, x, w, b=None, stride=1, pad=0, dilation=1):
         and int(x.size) <= _RAW_REFERENCE_CONV_OUTPUT
     )
     if use_custom_backward:
-        gx = cp.zeros_like(x); _call("conv_bwd_x_f32", (cp.ascontiguousarray(gy), cp.ascontiguousarray(w), gx, n,c,h,wi,oc,kh,kw,oh,ow,sh,sw,ph,pw), x.size)
+        # The kernel writes every element in C order regardless of x's strides.
+        gx = cp.empty(x.shape, dtype=x.dtype)
+        _call("conv_bwd_x_f32", (cp.ascontiguousarray(gy), cp.ascontiguousarray(w),
+                                 gx, n,c,h,wi,oc,kh,kw,oh,ow,sh,sw,ph,pw), x.size)
     else:
         from ..functions import (
             Conv2d as ConvFunction,
