@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 
 from eneuro.agent import SearchSpace
+from eneuro.agent._profiling import Profiling, add_profiling_arguments, profiling_from_args
 from eneuro.agent.car_executor import CarBehavioralCloningExecutor
 from eneuro.agent.evaluation import run_evaluation
 from eneuro.agent.search import SEARCH_STRATEGIES
@@ -28,7 +29,8 @@ def run_car_demo(data_dir: str | Path, *, trials: int = 3, epochs: int = 1,
                  image_width: int = 64, image_height: int = 32,
                  cameras: tuple[str, ...] = ("center", "left", "right"),
                  max_samples: int | None = None, runs: int = 1,
-                 output: str | Path = "artifacts/automl_car_full", strategy: str = "random"):
+                 output: str | Path = "artifacts/automl_car_full", strategy: str = "random",
+                 profiling: Profiling = None):
     """构造车辆执行器、运行固定预算搜索并保存报告。
 
     按驾驶记录划分数据，内层验证 MSE 用于选配置，外层 MSE/MAE 用于报告。
@@ -53,6 +55,7 @@ def run_car_demo(data_dir: str | Path, *, trials: int = 3, epochs: int = 1,
         runs=runs,
         output=output,
         strategy=strategy,
+        profiling=profiling,
         protocol={
             "task": "car_behavioral_cloning", "objective": "val_mse", "test_metric": "test_mse",
             "data": str(Path(data_dir).resolve()), "split_type": "chronological_by_csv_row",
@@ -93,6 +96,7 @@ def main() -> int:
                         default=("center", "left", "right"))
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--output", default="artifacts/automl_car_full")
+    add_profiling_arguments(parser)
     args = parser.parse_args()
     run_car_demo(
         args.data_dir,
@@ -108,6 +112,7 @@ def main() -> int:
         runs=args.runs,
         output=args.output,
         strategy=args.strategy,
+        profiling=profiling_from_args(args),
     )
     return 0
 

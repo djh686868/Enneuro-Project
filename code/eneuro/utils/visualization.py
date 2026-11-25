@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from scipy.ndimage import zoom
-from ..train.meters import AverageMeter, TimeMeter
+from ..train.meters import AverageMeter
 from ..train.metrics import confusion_matrix as _compute_cm
 
 class Visualizer:
@@ -26,7 +26,6 @@ class Visualizer:
         self.train_acc_meter = AverageMeter('Train Acc')
         self.val_loss_meter = AverageMeter('Val Loss')
         self.val_acc_meter = AverageMeter('Val Acc')
-        self.time_meter = TimeMeter()
     
     def reset(self):
         """重置所有指标和计数器"""
@@ -42,7 +41,6 @@ class Visualizer:
         self.train_acc_meter.reset()
         self.val_loss_meter.reset()
         self.val_acc_meter.reset()
-        self.time_meter.reset()
     
     def update_train(self, loss, acc, batch_size=1):
         """更新训练指标"""

@@ -7,9 +7,10 @@ except ImportError:
 from ..base import Tensor
 from ..base import as_Tensor
 from ..base.functions import get_array_module
-# from .meters import TimeMeter, AverageMeter
 from ..base import Config
+from ..profiling import ProfileSession, current_profile
 
+from contextlib import nullcontext
 import sys
 import time
 
@@ -59,6 +60,23 @@ def _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=None):
     batch_acc = (y_pred == y_true).mean()
     return y_pred, y_true, batch_acc
 
+
+def _profiled_batches(data_loader, profile, name, every):
+    iterator = iter(data_loader)
+    index = 0
+    while True:
+        try:
+            if index % every == 0:
+                with profile.span(name):
+                    batch = next(iterator)
+            else:
+                batch = next(iterator)
+        except StopIteration:
+            return
+        yield index, batch
+        index += 1
+
+
 class Trainer:
     def __init__(self, model, loss_fn, optimizer, visualizer=None, enable_early_stop=False,
                  on_epoch_end=None, on_batch_end=None, on_train_end=None):
@@ -71,6 +89,8 @@ class Trainer:
         self._on_batch_end = on_batch_end
         self._on_train_end = on_train_end
         self._stop_requested = False
+        self.profile_report = None
+        self.profile_path = None
 
         # 早停
         self.enable_early_stop = enable_early_stop
@@ -80,13 +100,24 @@ class Trainer:
         """从外部请求停止训练（用于 Web API 中途中断）。"""
         self._stop_requested = True
 
-    def _forward_loss(self, xb, yb, device):
-        xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
-        prediction = self.model(xb)
+    def _forward_loss(self, xb, yb, device, *, span=None):
+        if span is None:
+            xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
+            prediction = self.model(xb)
+            target_class, target, loss = self._loss_from_prediction(prediction, yb)
+        else:
+            with span("transfer"):
+                xb, yb = as_Tensor(xb).to(device), as_Tensor(yb).to(device)
+            with span("forward"):
+                prediction = self.model(xb)
+            with span("loss"):
+                target_class, target, loss = self._loss_from_prediction(prediction, yb)
+        return xb, yb, prediction, target_class, target, loss
+
+    def _loss_from_prediction(self, prediction, yb):
         target_class = yb.argmax(axis=1) if yb.ndim > 1 else yb
         target = yb if _is_multilabel(prediction, yb) else target_class
-        loss = self.loss_fn(prediction, target)
-        return xb, yb, prediction, target_class, target, loss
+        return target_class, target, self.loss_fn(prediction, target)
 
     def compute_batch_gradients(self, xb, yb, device='cpu'):
         """计算单批梯度；不更新参数，供单进程基线和 PS Worker 共用。"""
@@ -199,12 +230,30 @@ class Trainer:
         return False
 
 
-    def fit(self, train_loader, val_loader, epochs=10, batch_size=32, 
-                verbose=True, device='cpu', start_epoch=0, checkpoint_path=None, serializer=None):
-        """
-            only accept DataLoader object
-            if you need to split train/val dataset, please do it outside this function
-        """
+    def fit(self, train_loader, val_loader, epochs=10, batch_size=32,
+                verbose=True, device='cpu', start_epoch=0, checkpoint_path=None, serializer=None,
+                *, profiling=None):
+        """Train with DataLoaders and optionally collect a profiling report."""
+        self.profile_report = self.profile_path = None
+        args = (train_loader, val_loader, epochs, batch_size, verbose, device,
+                start_epoch, checkpoint_path, serializer)
+        if profiling is None:
+            profile = current_profile()
+            with profile.span("fit") if profile is not None else nullcontext():
+                return self._fit(*args)
+        session = ProfileSession(profiling, name="trainer", metadata={
+            "model": type(self.model).__name__, "device": device, "epochs": epochs,
+            "batch_size": batch_size, "start_epoch": start_epoch,
+        })
+        try:
+            with session, session.span("fit"):
+                return self._fit(*args)
+        finally:
+            self.profile_report = session.report
+            self.profile_path = session.report_path
+
+    def _fit(self, train_loader, val_loader, epochs, batch_size, verbose, device,
+             start_epoch, checkpoint_path, serializer):
         self.model = self.model.to(device)
         
         if verbose:
@@ -274,17 +323,39 @@ class Trainer:
             self._on_train_end({"total_epochs": epoch + 1})
 
     def _one_step(self, data_loader, batch_size=32, training=True, verbose=True, device='cpu'):
+        profile = current_profile()
+        if profile is None:
+            return self._run_step(data_loader, batch_size, training, verbose, device)
+        phase = "train" if training else "validation"
+        profile.mark(f"{phase}_start", epoch=self._epoch + 1, device=device)
+        with profile.span(phase):
+            result = self._run_step(data_loader, batch_size, training, verbose, device, profile)
+        profile.mark(f"{phase}_end", epoch=self._epoch + 1)
+        return result
+
+    def _run_step(self, data_loader, batch_size, training, verbose, device, profile=None):
         loss_sum, acc_sum, sample_num = 0., 0, 0
         y_true_list = []
         y_pred_list = []
         last_y_hat_shape, last_yb_ndim = None, None
         
-        for batch_idx, (Xb, yb) in enumerate(data_loader):
+        every = profile.config.batch_every if profile is not None else 0
+        prefix = "" if training else "validation_"
+        is_cuda = device in ("cuda", "gpu")
+        batches = (_profiled_batches(data_loader, profile, prefix + "data_wait", every)
+                   if every else enumerate(data_loader))
+
+        def span(name):
+            return profile.span(prefix + name, cuda=is_cuda)
+
+        for batch_idx, (Xb, yb) in batches:
+            sampled = every and batch_idx % every == 0
+            forward_args = {"span": span} if sampled else {}
             if training:
-                Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
+                Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device, **forward_args)
             else:
                 with Config.using_config('enable_backprop', False), Config.using_config('train', False):
-                    Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device)
+                    Xb, yb, y_hat, y_true_cls, y_target, loss = self._forward_loss(Xb, yb, device, **forward_args)
 
             batch_acc_info = _batch_accuracy(y_hat, yb, y_true_cls, loss_fn=self.loss_fn)
             if batch_acc_info[0] is None:
@@ -296,11 +367,17 @@ class Trainer:
 
             if training:
                 self.model.cleargrads()
-                loss.backward()
-                '''
-                    changed update to step
-                '''
-                self.optimizer.step()
+                if sampled:
+                    with span("backward"):
+                        loss.backward()
+                    with span("optimizer"):
+                        self.optimizer.step()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
+
+            if sampled and is_cuda:
+                profile.sample_cupy_pool()
 
             # 收集预测结果和真实标签，用于绘制混淆矩阵
             y_true_list.append(y_true)
@@ -360,6 +437,9 @@ class Trainer:
             # 只在验证时更新预测结果，因为训练集可能很大
             for yt, yp in zip(y_true_list, y_pred_list):
                 self.visualizer.update_predictions(yt, yp)
+
+        if profile is not None:
+            profile.count("train_samples" if training else "validation_samples", sample_num)
         
         return epoch_loss, epoch_acc 
 
@@ -370,7 +450,6 @@ class Evaluator:
         self.visualizer = visualizer
         # self.loss_meter = AverageMeter('Loss')
         # self.acc_meter = AverageMeter('Acc')
-        # self.time_meter = TimeMeter()
 
     def evaluate(self, data_loader, batch_size=32, verbose=True, device='cpu'):
         loss_sum, acc_sum, sample_num = 0., 0, 0

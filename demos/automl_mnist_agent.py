@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 
 from eneuro.agent import MNISTExecutor, SearchSpace, make_tiny_mnist
+from eneuro.agent._profiling import Profiling, add_profiling_arguments, profiling_from_args
 from eneuro.agent.evaluation import run_evaluation
 from eneuro.agent.search import SEARCH_STRATEGIES
 
@@ -55,7 +56,8 @@ def _load_mnist(path: str | Path):
 def run_mnist_demo(trials: int = 4, seed: int = 7, output: str | Path = "artifacts/automl_mnist",
                    data: str | Path | None = None, train_samples: int = 256,
                    test_samples: int = 256, epochs: int = 1, *, val_samples: int = 64,
-                   inner_folds: int = 1, runs: int = 1, split_seed: int = 0, strategy: str = "random"):
+                   inner_folds: int = 1, runs: int = 1, split_seed: int = 0,
+                   strategy: str = "random", profiling: Profiling = None):
     """执行 MNIST 调参和外层评估，返回首个种子的搜索结果。
 
     ``train_samples + val_samples`` 决定开发集的样本预算。留出模式下，
@@ -107,6 +109,7 @@ def run_mnist_demo(trials: int = 4, seed: int = 7, output: str | Path = "artifac
         runs=runs,
         output=output,
         strategy=strategy,
+        profiling=profiling,
         protocol={
             "task": "mnist",
             "data": data_source,
@@ -156,8 +159,10 @@ if __name__ == "__main__":
     parser.add_argument("--split-seed", type=int, default=0, help="固定数据划分和验证折的种子")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--output", default="artifacts/automl_mnist")
+    add_profiling_arguments(parser)
     args = parser.parse_args()
     run_mnist_demo(args.trials, args.seed, args.output, args.data,
                    args.train_samples, args.test_samples, args.epochs,
                    val_samples=args.val_samples, inner_folds=args.inner_folds,
-                   runs=args.runs, split_seed=args.split_seed, strategy=args.strategy)
+                   runs=args.runs, split_seed=args.split_seed, strategy=args.strategy,
+                   profiling=profiling_from_args(args))

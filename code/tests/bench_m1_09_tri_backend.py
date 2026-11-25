@@ -220,16 +220,15 @@ def _time_case(function, backend, warmup, iters):
         return np.asarray(samples, dtype=np.float64), 'perf_counter'
 
     import cupy as cp
+    from eneuro.profiling.timing import CudaEventTimer
+
     cp.cuda.Stream.null.synchronize()
     samples = []
     for _ in range(iters):
-        start = cp.cuda.Event()
-        end = cp.cuda.Event()
-        start.record()
+        timer = CudaEventTimer()
         function()
-        end.record()
-        end.synchronize()
-        samples.append(float(cp.cuda.get_elapsed_time(start, end)))
+        timer.stop()
+        samples.append(timer.elapsed_ms())
     return np.asarray(samples, dtype=np.float64), 'cuda_event'
 
 
@@ -441,13 +440,11 @@ def _environment_metadata(args, capabilities):
     }
     if capabilities['cupy']['available']:
         import cupy as cp
-        properties = cp.cuda.runtime.getDeviceProperties(0)
-        name = properties['name']
-        if isinstance(name, bytes):
-            name = name.decode(errors='replace')
+        from eneuro.profiling.cuda import cuda_device_name
+
         metadata.update({
             'cupy': cp.__version__,
-            'gpu': name,
+            'gpu': cuda_device_name(),
             'compute_capability': cp.cuda.Device().compute_capability,
             'cuda_runtime': int(cp.cuda.runtime.runtimeGetVersion()),
             'cuda_driver': int(cp.cuda.runtime.driverGetVersion()),

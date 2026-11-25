@@ -22,3 +22,6 @@ from . import optim
 __all__.append('optim')
 from . import loss
 __all__.append('loss')
+
+# Layer and Function must be defined before the hook wrappers are installed.
+from ..utils import hooks as _hooks

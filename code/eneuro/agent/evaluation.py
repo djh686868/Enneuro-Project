@@ -11,6 +11,8 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from ..profiling import ProfileSession
+from ._profiling import Profiling, profile_phase, profile_reference, profile_run, profile_window
 from .logger import EventLogger
 from .protocol import SearchResult, SearchSpace, TrialResult
 from .search import SEARCH_STRATEGIES, SequentialRandomSearch, create_search
@@ -146,21 +148,28 @@ def plot_anytime(output: Path, curves: dict, objective: str, runs: int, *,
     return True
 
 
-def _outer_score(executor: EvaluationExecutor, config: dict | None, metric: str) -> dict:
+def _outer_score(executor: EvaluationExecutor, config: dict | None, metric: str, *,
+                 profile: ProfileSession | None, seed: int, method: str) -> dict:
     if config is None:
         return {"status": "skipped", "error": "no valid inner evaluation"}
+    profile_start = profile.offset_ns if profile is not None else None
     try:
-        metrics = executor.evaluate_final(config)
-        if not isfinite(metrics[metric]):
-            raise ValueError("outer test metric must be finite")
-        return {**metrics, "status": "completed"}
+        with profile_phase(profile, "automl.refit", seed=seed, method=method, config=config):
+            metrics = executor.evaluate_final(config)
+            if not isfinite(metrics[metric]):
+                raise ValueError("outer test metric must be finite")
+        result = {**metrics, "status": "completed"}
     except Exception as exc:
-        return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+        result = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+    if profile is not None:
+        result["profiling"] = profile_window(profile, profile_start)
+    return result
 
 
 def run_evaluation(executor_factory: Callable[[int], EvaluationExecutor], search_space: SearchSpace, *,
                    baseline_config: dict, n_trials: int, seed: int, runs: int,
-                   output: str | Path, protocol: Mapping[str, Any], strategy: str = "random") -> SearchResult:
+                   output: str | Path, protocol: Mapping[str, Any], strategy: str = "random",
+                   profiling: Profiling = None) -> SearchResult:
     """每个种子用相同协议比较两种方法，先锁定各自配置，再做外层评估。"""
     if runs < 1:
         raise ValueError("runs must be positive")
@@ -172,45 +181,57 @@ def run_evaluation(executor_factory: Callable[[int], EvaluationExecutor], search
     metric = protocol["test_metric"]
     records = []
     primary = None
-    for run_seed in range(seed, seed + runs):
-        search_executor = executor_factory(run_seed)
-        baseline_executor = executor_factory(run_seed)
-        logger = EventLogger()
-        agent = create_search(strategy, search_executor, search_space, n_trials=n_trials,
-                              seed=run_seed, logger=logger)
-        start = time.perf_counter()
-        result = agent.run()
-        search_elapsed = time.perf_counter() - start
-        if primary is None:
-            primary = result
-            logger.write_json(directory / "report.json", {**result.to_dict(), "strategy": strategy})
-            logger.write_jsonl(directory / "events.jsonl", result.events)
+    with profile_run(
+        profiling, name="automl_evaluation", output_dir=directory / "profiling",
+        seed=seed, runs=runs, strategy=strategy, task=protocol.get("task"),
+        model=protocol.get("model"), device=protocol.get("device"),
+    ) as (profile, owned):
+        for run_seed in range(seed, seed + runs):
+            search_executor = executor_factory(run_seed)
+            baseline_executor = executor_factory(run_seed)
+            logger = EventLogger()
+            agent = create_search(strategy, search_executor, search_space, n_trials=n_trials,
+                                  seed=run_seed, logger=logger)
+            start = time.perf_counter()
+            with profile_phase(profile, "automl.search", seed=run_seed, method=search_method):
+                result = agent.run()
+            search_elapsed = time.perf_counter() - start
+            if primary is None:
+                primary = result
+                logger.write_json(directory / "report.json", {**result.to_dict(), "strategy": strategy})
+                logger.write_jsonl(directory / "events.jsonl", result.events)
 
-        baseline = SequentialRandomSearch(baseline_executor, n_trials=1, seed=run_seed)
-        start = time.perf_counter()
-        fixed_result = baseline.execute(baseline_config, 0)
-        fixed_elapsed = time.perf_counter() - start
-        fixed_config = baseline_config if fixed_result.status == "completed" else None
+            baseline = SequentialRandomSearch(baseline_executor, n_trials=1, seed=run_seed)
+            start = time.perf_counter()
+            with profile_phase(profile, "automl.baseline", seed=run_seed, method="fixed_baseline"):
+                fixed_result = baseline.execute(baseline_config, 0)
+            fixed_elapsed = time.perf_counter() - start
+            fixed_config = baseline_config if fixed_result.status == "completed" else None
 
-        # 此处才访问测试集。指标只写评估报告，不传回搜索器。
-        records.append({
-            "seed": run_seed,
-            search_method: {
-                "trials": result.trials, "selected_config": result.best_config,
-                "search_elapsed_s": search_elapsed,
-                "outer_test": _outer_score(search_executor, result.best_config, metric),
-            },
-            "fixed_baseline": {
-                "trials": [{"trial_id": 0, "config": baseline_config, "result": fixed_result.to_dict()}],
-                "selected_config": fixed_config, "search_elapsed_s": fixed_elapsed,
-                "outer_test": _outer_score(baseline_executor, fixed_config, metric),
-            },
-        })
+            # 此处才访问测试集。指标只写评估报告，不传回搜索器。
+            records.append({
+                "seed": run_seed,
+                search_method: {
+                    "trials": result.trials, "selected_config": result.best_config,
+                    "search_elapsed_s": search_elapsed,
+                    "outer_test": _outer_score(search_executor, result.best_config, metric,
+                                               profile=profile, seed=run_seed, method=search_method),
+                },
+                "fixed_baseline": {
+                    "trials": [{"trial_id": 0, "config": baseline_config, "result": fixed_result.to_dict()}],
+                    "selected_config": fixed_config, "search_elapsed_s": fixed_elapsed,
+                    "outer_test": _outer_score(baseline_executor, fixed_config, metric,
+                                               profile=profile, seed=run_seed, method="fixed_baseline"),
+                },
+            })
+    if owned:
+        primary.profiling = profile_reference(profile, completed=True)
+        EventLogger().write_json(directory / "report.json", {**primary.to_dict(), "strategy": strategy})
 
     curves = {method: _anytime_curve([run[method]["trials"] for run in records], n_trials)
               for method in (search_method, "fixed_baseline")}
     has_plot = plot_anytime(directory / "anytime.svg", curves, objective, runs)
-    EventLogger().write_json(directory / "evaluation.json", {
+    evaluation = {
         "protocol": dict(protocol),
         "strategy": strategy,
         "environment": {"platform": platform.platform(), "processor": platform.processor(),
@@ -223,5 +244,8 @@ def run_evaluation(executor_factory: Callable[[int], EvaluationExecutor], search
         "anytime": {"axis": "attempted_configurations", "curves": curves,
                     "plot": "anytime.svg" if has_plot else None},
         "paired_comparison": _paired_comparison(records, metric, search_method),
-    })
+    }
+    if primary.profiling is not None:
+        evaluation["profiling"] = primary.profiling
+    EventLogger().write_json(directory / "evaluation.json", evaluation)
     return primary

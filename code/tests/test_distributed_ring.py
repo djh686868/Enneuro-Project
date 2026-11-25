@@ -15,6 +15,7 @@ from eneuro.distributed.ring import _allreduce, _broadcast, _make_links
 from eneuro.distributed.state import install_gradients, named_state
 from eneuro.base.parameter import Parameter
 from eneuro.nn.loss import meanSquaredError
+from eneuro.profiling.distributed import benchmark_metrics, summarize_timings, worker_loss_trace
 from eneuro.train import DistributedConfig, Trainer, launch_distributed
 from eneuro.utils.serializer import Serializer
 
@@ -145,14 +146,73 @@ def test_independent_callers_can_launch_ps_and_ring_concurrently(tmp_path):
             config = DistributedConfig(backend=backend, world_size=2, global_batch_size=4,
                                        port=0, metrics_dir=tmp_path / backend)
             jobs.append(callers.submit(launch_distributed, make_model, make_dataset,
-                                       meanSquaredError, make_optimizer, config))
+                                       meanSquaredError, make_optimizer, config,
+                                       profiling={"system_metrics": False, "output_dir": config.metrics_dir}))
         ps, ring = [job.result(timeout=60) for job in jobs]
     assert ps["model_version"] == ring["model_version"] == 4
     for name, value in ps["parameters"].items():
         np.testing.assert_allclose(ring["parameters"][name], value, atol=1e-6, rtol=1e-5)
+    for backend, result, comm in (("ps", ps, "push"), ("ring", ring, "allreduce")):
+        report = result["profiling"]["report"]
+        assert report["timings"]["distributed.launch"]["wall_ms"]["count"] == 1
+        summary = report["observations"]["distributed"]["metrics"]
+        assert summary["backend"] == backend
+        assert summary["errors"] == {}
+        assert (tmp_path / backend / f"{report['run_id']}.json").is_file()
+        for rank in range(2):
+            worker = summary["roles"][f"worker-{rank}"]
+            assert worker["samples"] == 8
+            assert worker["timings"][comm]["count"] == 4
+            assert worker["timings"][comm]["bytes_sent"] > 0
+        if backend == "ps":
+            assert summary["roles"]["ps"]["timings"]["aggregate_update"]["count"] == 4
+        else:
+            assert "ps" not in summary["roles"]
 
 
 def test_unknown_backend_is_rejected():
     with pytest.raises(ValueError, match="backend"):
         launch_distributed(make_model, make_dataset, meanSquaredError, make_optimizer,
                            DistributedConfig(backend="unknown"))
+
+
+def test_distributed_log_summary_preserves_timing_and_loss_contract(tmp_path):
+    def record(event, duration_ms, sent=0, received=0, **details):
+        return {"event": event, "duration_ms": duration_ms, "bytes_sent": sent,
+                "bytes_received": received, **details}
+
+    rank_logs = [
+        [record("compute", 40, step=0, sample_count=3, loss=1.5),
+         record("pull", 5, 1, 80),
+         record("push", 60, 100, 80, barrier_wait_ms=10),
+         record("step", 100, start_perf_ns=0, end_perf_ns=100_000_000)],
+        [record("compute", 50, step=0, sample_count=1, loss=5.5),
+         record("pull", 6, 1, 85),
+         record("push", 70, 120, 85, barrier_wait_ms=15),
+         record("step", 120, start_perf_ns=30_000_000, end_perf_ns=150_000_000)],
+    ]
+    for rank, records in enumerate(rank_logs):
+        (tmp_path / f"worker-{rank}.jsonl").write_text(
+            "".join(json.dumps(entry) + "\n" for entry in records), encoding="utf-8",
+        )
+    (tmp_path / "ps.jsonl").write_text(json.dumps(record("aggregate_update", 30)) + "\n", encoding="utf-8")
+
+    summary = summarize_timings(tmp_path, backend="ps", world_size=2)
+    assert summary["errors"] == {}
+    assert summary["roles"]["worker-1"]["timings"]["push"]["barrier_wait_ms"] == 15
+    assert summary["roles"]["ps"]["timings"]["aggregate_update"]["mean_ms"] == 30
+
+    assert benchmark_metrics(tmp_path, 2) == {
+        "training_elapsed_s": 0.15,
+        "samples_processed": 4,
+        "train_samples_per_second": 4 / 0.15,
+        "compute_ms_sum": 90.0,
+        "push_ms_sum": 130.0,
+        "pull_ms_sum": 11.0,
+        "allreduce_ms_sum": 0.0,
+        "step_ms_sum": 220.0,
+        "communication_ratio": 130 / 220,
+        "bytes_sent": 222,
+        "bytes_received": 330,
+    }
+    assert worker_loss_trace(tmp_path, 2) == [(1, 2.5, 4)]

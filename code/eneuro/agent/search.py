@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from copy import copy
 from itertools import count
 import json
 from math import erfc, isfinite, log10, pi, sqrt
@@ -10,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from ..profiling import current_profile
+from ._profiling import Profiling, profile_phase, profile_reference, profile_run, profile_window
 from .logger import EventLogger
 from .protocol import Executor, SearchResult, SearchSpace, TrialResult
 
@@ -18,7 +22,8 @@ class _SequentialSearch:
 
     def __init__(self, executor: Executor | Callable[[Mapping[str, Any]], Any],
                  search_space: SearchSpace | None = None, *, n_trials: int | None = 8,
-                 seed: int = 0, logger: EventLogger | None = None):
+                 seed: int = 0, logger: EventLogger | None = None,
+                 profiling: Profiling = None):
         # trial 数必须为正，避免得到没有任何结果的空报告。
         if n_trials is not None and n_trials < 1:
             raise ValueError("n_trials must be positive")
@@ -30,6 +35,9 @@ class _SequentialSearch:
         # 使用独立 Generator，不污染调用方的全局 NumPy 随机状态。
         self.rng = np.random.default_rng(self.seed)
         self.logger = logger or EventLogger()
+        self.profiling = profiling
+        self._profile_scoped = False
+        self._profile_report: dict[str, Any] | None = None
         self.trials: list[dict[str, Any]] = []
         # 用规范化 JSON 保存已尝试配置，避免离散空间重复试验。
         self._seen_configs: set[str] = set()
@@ -71,6 +79,23 @@ class _SequentialSearch:
     def _next_config(self) -> dict[str, Any]:
         return self._random_config()
 
+    @contextmanager
+    def _profile_scope(self):
+        if self._profile_scoped:
+            yield current_profile()
+            return
+        profile, owned = None, False
+        try:
+            with profile_run(
+                self.profiling, name="automl_search", seed=self.seed, searcher=type(self).__name__,
+            ) as (profile, owned):
+                self._profile_scoped = True
+                yield profile
+        finally:
+            self._profile_scoped = False
+            if owned:
+                self._profile_report = profile_reference(profile, completed=True)
+
     def execute(self, config: Mapping[str, Any] | None = None, trial_id: int | None = None) -> TrialResult:
         """调用执行器运行配置，并把异常转为可观测的失败 trial。
 
@@ -79,13 +104,22 @@ class _SequentialSearch:
         """
         config = dict(config or self._current_config or {})
         tid = self._current_trial if trial_id is None else int(trial_id)
-        try:
-            raw = self.executor.execute(config) if hasattr(self.executor, "execute") else self.executor(config)
-            result = raw if isinstance(raw, TrialResult) else TrialResult(float(raw["objective"]), dict(raw))
-            if result.status == "completed" and not isfinite(result.objective):
-                raise ValueError("trial objective must be finite")
-        except Exception as exc:  # 失败也必须可观测，并继续搜索。
-            result = TrialResult(float("inf"), status="failed", error=f"{type(exc).__name__}: {exc}")
+        with self._profile_scope() as profile:
+            profile_start = profile.offset_ns if profile is not None else None
+            try:
+                with profile_phase(profile, "automl.trial", trial_id=tid, seed=self.seed,
+                                   searcher=type(self).__name__, config=config):
+                    raw = self.executor.execute(config) if hasattr(self.executor, "execute") else self.executor(config)
+                    result = raw if isinstance(raw, TrialResult) else TrialResult(float(raw["objective"]), dict(raw))
+                    if result.status == "completed" and not isfinite(result.objective):
+                        raise ValueError("trial objective must be finite")
+            except Exception as exc:  # 失败也必须可观测，并继续搜索。
+                result = TrialResult(float("inf"), status="failed", error=f"{type(exc).__name__}: {exc}")
+            if profile is not None:
+                result = copy(result)
+                result.profiling = profile_window(profile, profile_start)
+                profile.mark("automl.trial.result", trial_id=tid, seed=self.seed,
+                             searcher=type(self).__name__, status=result.status)
         self.logger.emit("execute", tid, config=config, result=result.to_dict())
         return result
 
@@ -105,13 +139,15 @@ class _SequentialSearch:
         if self.n_trials is None and should_stop is None:
             raise ValueError("unbounded trial count requires a stop condition")
         trial_ids = count() if self.n_trials is None else range(self.n_trials)
-        for trial_id in trial_ids:
-            if should_stop is not None and should_stop():
-                break
-            self.observe(trial_id)
-            config = self.decide(trial_id)
-            result = self.execute(config, trial_id)
-            self.feedback(config, result, trial_id)
+        with self._profile_scope() as profile:
+            self._profile_report = profile_reference(profile, completed=False) if profile is not None else None
+            for trial_id in trial_ids:
+                if should_stop is not None and should_stop():
+                    break
+                self.observe(trial_id)
+                config = self.decide(trial_id)
+                result = self.execute(config, trial_id)
+                self.feedback(config, result, trial_id)
         return self.result()
 
     def result(self) -> SearchResult:
@@ -119,7 +155,8 @@ class _SequentialSearch:
         # 忽略失败 trial，只在成功结果中寻找最小 objective。
         best = min(self._successful_trials(), key=_objective, default=None)
         best_result = TrialResult(**best["result"]) if best else None
-        return SearchResult(self.trials, list(self.logger.events), best["config"] if best else None, best_result, self.seed)
+        return SearchResult(self.trials, list(self.logger.events), best["config"] if best else None,
+                            best_result, self.seed, profiling=self._profile_report)
 
     def _best_value(self) -> float | None:
         """读取当前成功 trial 中的最小目标值。"""
@@ -277,11 +314,13 @@ SEARCH_STRATEGIES = tuple(_SEARCHERS)
 
 def create_search(strategy: str, executor: Executor | Callable[[Mapping[str, Any]], Any],
                   search_space: SearchSpace | None = None, *, n_trials: int | None = 8,
-                  seed: int = 0, logger: EventLogger | None = None) -> _SequentialSearch:
+                  seed: int = 0, logger: EventLogger | None = None,
+                  profiling: Profiling = None) -> _SequentialSearch:
     """通过公开策略 ID 创建搜索器，共用同一个训练执行器接口。"""
     if strategy not in _SEARCHERS:
         raise ValueError(f"unknown search strategy {strategy!r}; choose from {', '.join(SEARCH_STRATEGIES)}")
-    return _SEARCHERS[strategy](executor, search_space, n_trials=n_trials, seed=seed, logger=logger)
+    return _SEARCHERS[strategy](executor, search_space, n_trials=n_trials, seed=seed,
+                                logger=logger, profiling=profiling)
 
 
 # 兼容更直观的调用命名；它们与核心实现完全相同。

@@ -11,6 +11,7 @@ import numpy as np
 
 from ..base import Tensor
 from ..nn.loss import crossEntropyError
+from ..profiling.distributed import worker_loss_trace
 from ..train.trainer import Trainer
 from . import DistributedConfig, launch
 from .mnist import make_lenet, make_mnist_dataset, make_optimizer
@@ -39,19 +40,13 @@ def _single_process_losses(samples, batch_size):
 
 
 def _distributed_losses(metrics_dir, steps, workers):
-    losses = [[] for _ in range(steps)]
-    for rank in range(workers):
-        with (metrics_dir / f'worker-{rank}.jsonl').open(encoding='utf-8') as stream:
-            for line in stream:
-                record = json.loads(line)
-                if record['event'] == 'compute':
-                    losses[record['step']].append((record['loss'], record['sample_count']))
-    if any(len(step_losses) != workers for step_losses in losses):
+    try:
+        trace = worker_loss_trace(metrics_dir, workers)
+    except ValueError as exc:
+        raise AssertionError('missing or duplicated Worker loss in a distributed step') from exc
+    if [step for step, _, _ in trace] != list(range(1, steps + 1)):
         raise AssertionError('missing or duplicated Worker loss in a distributed step')
-    return np.asarray([
-        sum(loss * count for loss, count in step_losses) / sum(count for _, count in step_losses)
-        for step_losses in losses
-    ])
+    return np.asarray([loss for _, loss, _ in trace])
 
 
 def main():

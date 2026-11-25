@@ -58,7 +58,9 @@ try:
     cp = _cupy
     HAS_CUPY = True
     try:
-        GPU_NAME = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+        from eneuro.profiling.cuda import cuda_device_name
+
+        GPU_NAME = cuda_device_name()
     except Exception:
         GPU_NAME = "unknown"
 except Exception as _exc:                            # pragma: no cover

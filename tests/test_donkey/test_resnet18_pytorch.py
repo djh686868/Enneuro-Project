@@ -4,7 +4,6 @@ import sys
 import json
 import re
 import time
-import psutil
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +12,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
+
+sys.path.append(str(Path(__file__).resolve().parents[2] / 'code'))
+from eneuro.profiling import process_snapshot
+from eneuro.profiling.cuda import cuda_allocator_memory
 
 
 def default_transform(x):
@@ -166,15 +169,9 @@ def count_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
-def print_gpu_mem():
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1024**2
-        cached = torch.cuda.memory_reserved() / 1024**2
-        print(f"GPU memory: allocated={allocated:.1f}MB, cached={cached:.1f}MB")
-
-
 def train():
-    print_gpu_mem()
+    if memory := cuda_allocator_memory("torch"):
+        print("GPU allocator memory (bytes):", memory)
     
     batch_size = 16
     num_workers = 2
@@ -233,17 +230,19 @@ def train():
             display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
             progress_bar(batch_idx * batch_size + len(images), len(dataset), epoch, loss.item(), display_acc)
             
-            current_mem = psutil.Process().memory_info().rss / 1024**2
-            mem_peak = max(mem_peak, current_mem)
+            rss = process_snapshot()["rss_bytes"]
+            if rss is not None:
+                mem_peak = max(mem_peak, rss / 1024**2)
             
-            if torch.cuda.is_available():
-                gpu_mem_history.append(torch.cuda.memory_allocated() / 1024**2)
+            if memory := cuda_allocator_memory("torch"):
+                gpu_mem_history.append(memory["allocated_bytes"] / 1024**2)
         
         toc = time.time()
         duration = toc - tic
         print(f"\nEpoch completed in {duration:.4f}s\n")
     
-    print_gpu_mem()
+    if memory := cuda_allocator_memory("torch"):
+        print("GPU allocator memory (bytes):", memory)
     
     gpu_peak = max(gpu_mem_history) if gpu_mem_history else 0
     gpu_avg = np.mean(gpu_mem_history) if gpu_mem_history else 0

@@ -16,6 +16,7 @@ EnNeuro是一个轻量级的卷积神经网络(CNN)框架，专为深度学习�
 - **数据加载和处理**：内置Dataset和DataLoader类
 - **训练可视化**：支持训练过程的可视化
 - **单机多进程训练**支持同步 PS 和 Ring Allreduce。业务模块可从 `eneuro.train` 调用 `launch_distributed`。[并发训练用法与性能测试](code/eneuro/distributed/README.md)
+- **训练性能采集**支持 CPU、内存、GPU、阶段计时与 Nsight 标记。Trainer、AutoML 和分布式入口共享配置，MCP 客户端可读取运行报告。[训练性能采集指南](doc/training_profiling.md)、[代码 API README](code/eneuro/profiling/README.md)、[使用示例](doc/profiling_examples.md)
 
 ## 安装
 

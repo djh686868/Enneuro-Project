@@ -20,6 +20,7 @@ from eneuro.nn.module import (
 from eneuro.ao import GraphOptimizer, model_to_graph, graph_to_executor, graph_apply_fuse, graph_apply_cast, GradScaler
 from eneuro.nn.optim import SGD
 from eneuro.nn.loss import crossEntropyError
+from eneuro.profiling import cuda_device_memory
 
 def progress_bar(current, total, epoch, loss, acc, width=30): # 进度条
     """current: 当前已处理样本数；total: 总样本数"""
@@ -86,7 +87,8 @@ class ResNet18(Module):
 
 
 def test_resnet18_forward_backward():
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
     
     from eneuro.data import DataLoader
     from eneuro.base.functions import has_cupy
@@ -138,7 +140,8 @@ def test_resnet18_forward_backward():
     print(f"[PASS] test_resnet18_forward_backward {duration:.4f}")
     #import gc
     #gc.collect()
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
 
 # -*- coding: utf-8 -*-
 import os
@@ -280,16 +283,9 @@ class SteeringDataset(Dataset):
         idx = max(0, min(idx, num_classes - 1))
         return idx
 
-def print_gpu_mem():
-    from eneuro.base.functions import has_cupy
-    if has_cupy:
-        import cupy as cp
-        free, total = cp.cuda.Device().mem_info
-        used = total - free
-        print(f"GPU memory: used={used/1024**2:.1f}MB, free={free/1024**2:.1f}MB, total={total/1024**2:.1f}MB")
-
 def train(num_epoch=10, option='normal', autocast=False):
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
 
     batch_size = 32
 
@@ -382,7 +378,8 @@ def train(num_epoch=10, option='normal', autocast=False):
     #del optimizer
     #import gc
     #gc.collect()
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
     return duration
 
 def test1():

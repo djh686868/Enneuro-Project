@@ -36,6 +36,7 @@ if str(ROOT) not in sys.path:
 import cupy as cp  # noqa: E402
 
 from eneuro.base import Tensor as EneTensor  # noqa: E402
+from eneuro.profiling.cuda import cuda_device_name  # noqa: E402
 
 LIB_PATH = ROOT / "eneuro" / "cuda" / ("dll" if os.name == "nt" else "so") / f"vector_add.{'dll' if os.name == 'nt' else 'so'}"
 
@@ -112,7 +113,7 @@ def main():
     print("=" * 78)
     print("方案B 零拷贝实现示例（vector_add.cu）")
     print("=" * 78)
-    print(f"GPU   : {cp.cuda.runtime.getDeviceProperties(0)['name'].decode()}")
+    print(f"GPU   : {cuda_device_name()}")
     print(f"库    : {LIB_PATH}")
     print(f"n     : {n:,}\n")
 

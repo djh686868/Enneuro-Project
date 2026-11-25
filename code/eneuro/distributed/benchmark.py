@@ -11,62 +11,12 @@ from pathlib import Path
 import numpy as np
 
 from ..nn.loss import meanSquaredError, crossEntropyError
+from ..profiling.distributed import benchmark_metrics, worker_loss_trace
 from .demo import make_model, make_dataset, make_optimizer
 from .mnist import make_lenet, make_mnist_dataset, make_optimizer as make_mnist_optimizer
 from .autodrive import (make_autodrive_model, make_steering_dataset,
                         make_optimizer as make_autodrive_optimizer)
 from .launcher import DistributedConfig, launch
-
-
-def _metrics(directory, world_size):
-    durations = dict.fromkeys(('compute', 'push', 'pull', 'allreduce', 'step'), 0.0)
-    samples = sent = received = 0
-    first_step_ns, last_step_ns = None, None
-    for rank in range(world_size):
-        with (directory / f'worker-{rank}.jsonl').open(encoding='utf-8') as stream:
-            for line in stream:
-                entry = json.loads(line)
-                event = entry['event']
-                if event in durations:
-                    durations[event] += entry['duration_ms']
-                if event == 'compute':
-                    samples += entry['sample_count']
-                elif event in ('push', 'pull', 'allreduce', 'broadcast'):
-                    sent += entry['bytes_sent']
-                    received += entry['bytes_received']
-                elif event == 'step':
-                    start_ns, end_ns = entry['start_perf_ns'], entry['end_perf_ns']
-                    first_step_ns = start_ns if first_step_ns is None else min(first_step_ns, start_ns)
-                    last_step_ns = end_ns if last_step_ns is None else max(last_step_ns, end_ns)
-    if first_step_ns is None or last_step_ns <= first_step_ns:
-        raise ValueError('no completed training steps found')
-    training_s = (last_step_ns - first_step_ns) / 1e9
-    return {
-        'training_elapsed_s': training_s,
-        'samples_processed': samples,
-        'train_samples_per_second': samples / training_s,
-        **{f'{event}_ms_sum': value for event, value in durations.items()},
-        'communication_ratio': (durations['push'] + durations['allreduce']) / durations['step'],
-        'bytes_sent': sent,
-        'bytes_received': received,
-    }
-
-
-def _loss_trace(directory, world_size):
-    by_step = {}
-    for rank in range(world_size):
-        with (directory / f'worker-{rank}.jsonl').open(encoding='utf-8') as stream:
-            for line in stream:
-                entry = json.loads(line)
-                if entry['event'] == 'compute':
-                    by_step.setdefault(entry['step'], []).append((entry['loss'], entry['sample_count']))
-    trace = []
-    for step, pieces in sorted(by_step.items()):
-        if len(pieces) != world_size:
-            raise ValueError(f'incomplete loss trace at step {step}')
-        count = sum(size for _, size in pieces)
-        trace.append((step + 1, sum(loss * size for loss, size in pieces) / count, count))
-    return trace
 
 
 def _compare_results(first, second):
@@ -143,9 +93,9 @@ def main():
                 start = time.perf_counter()
                 result = launch(model_factory, dataset_factory, loss_fn, optimizer_factory, config)
                 elapsed = time.perf_counter() - start
-                metrics = _metrics(directory, world_size)
+                metrics = benchmark_metrics(directory, world_size)
                 samples = metrics['samples_processed']
-                trace = _loss_trace(directory, world_size)
+                trace = worker_loss_trace(directory, world_size)
                 if (len(trace) != expected_steps or result['model_version'] != expected_steps
                         or samples != expected_steps * batch_size):
                     raise ValueError('benchmark processed an unexpected number of samples or optimizer steps')
