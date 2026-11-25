@@ -1,11 +1,15 @@
 import os
 import json
+import sys
 import time
-import psutil
 import numpy as np
 from pathlib import Path
 from PIL import Image
 import tensorflow as tf
+
+sys.path.append(str(Path(__file__).resolve().parents[2] / 'code'))
+from eneuro.profiling import process_snapshot
+from eneuro.profiling.cuda import cuda_allocator_memory
 
 
 def progress_bar(current, total, epoch, loss, acc):
@@ -147,18 +151,13 @@ def train():
             display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
             progress_bar(batch_idx * batch_size + len(images_batch), num_samples, epoch, loss.numpy(), display_acc)
             
-            current_mem = psutil.Process().memory_info().rss / 1024**2
-            mem_peak = max(mem_peak, current_mem)
+            rss = process_snapshot()["rss_bytes"]
+            if rss is not None:
+                mem_peak = max(mem_peak, rss / 1024**2)
             
-            if tf.config.list_physical_devices('GPU'):
-                try:
-                    gpus = tf.config.list_logical_devices('GPU')
-                    for gpu in gpus:
-                        mem_info = tf.config.experimental.get_memory_info(gpu.name)
-                        gpu_mem_history.append(mem_info['current'] / 1024**2)
-                        break
-                except Exception:
-                    pass
+            memory = cuda_allocator_memory("tensorflow")
+            if memory is not None:
+                gpu_mem_history.append(memory["allocated_bytes"] / 1024**2)
         
         toc = time.time()
         duration = toc - tic

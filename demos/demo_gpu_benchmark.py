@@ -21,6 +21,7 @@ except ImportError:
     cp = None
 
 from eneuro.base import Tensor, Config
+from eneuro.profiling.cuda import cuda_device_name
 
 
 def build_resnet18_gpu_test():
@@ -93,7 +94,7 @@ def build_resnet18_gpu_test():
     speedup_train = 0
 
     if HAS_GPU:
-        print(f'\n--- GPU (CuPy / {cp.cuda.runtime.getDeviceProperties(0)[b"name"].decode()}) 测试 ---')
+        print(f'\n--- GPU (CuPy / {cuda_device_name()}) 测试 ---')
         model_gpu = ResNet18AutoDrive()
         model_gpu.to('cuda')
 

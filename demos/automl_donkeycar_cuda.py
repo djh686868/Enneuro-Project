@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 
 from eneuro.agent import SearchSpace
+from eneuro.agent._profiling import add_profiling_arguments, profiling_from_args
 from eneuro.agent.donkeycar_executor import DonkeyCarSteeringExecutor
 from eneuro.agent.search import SEARCH_STRATEGIES
 from eneuro.agent.timed_search import run_timed_search
@@ -35,6 +36,7 @@ def main() -> int:
     parser.add_argument("--device-id", type=int, default=0)
     default_output = ROOT / "artifacts" / f"automl_donkeycar_cuda_{datetime.now():%Y%m%d_%H%M%S}"
     parser.add_argument("--output", type=Path, default=default_output, help="本次运行的新输出目录")
+    add_profiling_arguments(parser)
     args = parser.parse_args()
 
     budget_s = args.budget_minutes * 60
@@ -66,6 +68,7 @@ def main() -> int:
     return run_timed_search(
         executor, space, budget_s=budget_s, trials=args.trials, seed=args.seed, output=args.output,
         strategy=args.strategy,
+        profiling=profiling_from_args(args),
         protocol={
             "task": "donkeycar_steering", "data": str(executor.data_dir),
             "model": "ResNet18Regressor", "device": device_name, "device_id": args.device_id,

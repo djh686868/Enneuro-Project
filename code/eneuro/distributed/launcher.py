@@ -6,6 +6,8 @@ import multiprocessing as mp
 from queue import Empty
 import time
 
+from ..profiling import ProfileConfig, ProfileSession, current_profile
+from ..profiling.distributed import summarize_timings
 from .client import PSClient
 from .server import run_server
 from .worker import run_worker
@@ -27,13 +29,48 @@ class DistributedConfig:
     backend: str = 'ps'
 
 
-def launch(model_factory, dataset_factory, loss_fn, optimizer_factory, config=None):
-    """Factories and loss function must be importable top-level callables."""
+def launch(model_factory, dataset_factory, loss_fn, optimizer_factory, config=None, *, profiling=None):
+    """Launch with importable factories and optional system and timing profiling."""
     config = config or DistributedConfig()
     if (config.world_size < 1 or config.global_batch_size < config.world_size
             or config.epochs < 1 or config.timeout_s <= 0):
         raise ValueError('invalid distributed configuration')
     config = replace(config, metrics_dir=Path(config.metrics_dir))
+    args = model_factory, dataset_factory, loss_fn, optimizer_factory, config
+    active = current_profile()
+    if profiling is None:
+        return _launch_with_profile(active, *args)
+
+    profile_config = ProfileConfig.coerce(profiling)
+    if not profile_config.enabled and active is None:
+        return _launch(*args)
+    with ProfileSession(profile_config, name='distributed', metadata={
+        'backend': config.backend, 'world_size': config.world_size, 'epochs': config.epochs,
+        'global_batch_size': config.global_batch_size, 'metrics_dir': str(config.metrics_dir),
+    }) as session:
+        result = _launch_with_profile(current_profile(), *args)
+    if session.enabled:
+        result['profiling'] = {
+            'report': session.report,
+            'report_path': str(session.report_path) if session.report_path is not None else None,
+            'samples_path': str(session.samples_path) if session.samples_path is not None else None,
+        }
+    return result
+
+
+def _launch_with_profile(profile, model_factory, dataset_factory, loss_fn, optimizer_factory, config):
+    args = model_factory, dataset_factory, loss_fn, optimizer_factory, config
+    if profile is None:
+        return _launch(*args)
+    with profile.span('distributed.launch'):
+        result = _launch(*args)
+    profile.observe('distributed', summarize_timings(
+        config.metrics_dir, backend=config.backend, world_size=config.world_size,
+    ))
+    return result
+
+
+def _launch(model_factory, dataset_factory, loss_fn, optimizer_factory, config):
     context = mp.get_context('spawn')
     if config.backend == 'ps':
         result = _launch_ps(context, model_factory, dataset_factory, loss_fn, optimizer_factory, config)

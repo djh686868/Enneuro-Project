@@ -1,42 +1,42 @@
-import psutil
+import atexit
+
 from fastapi import APIRouter
+
+from eneuro.profiling.collectors import SystemCollector
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
-_nvml_ok = False
-try:
-    import pynvml
-    pynvml.nvmlInit()
-    _nvml_ok = True
-except Exception:
-    pass
+_collector = SystemCollector()
+atexit.register(_collector.close)
+
+
+def _gib(value):
+    return round(value / 1024 ** 3, 2) if value is not None else None
 
 
 @router.get("/stats")
 def get_stats():
-    mem = psutil.virtual_memory()
-    cpu = psutil.cpu_percent(interval=None)
-
+    snapshot = _collector.sample()
+    host = snapshot["host"]
+    cpu_percent = host["cpu_percent"]
+    if cpu_percent is None and snapshot["sources"]["host"] == "psutil":
+        cpu_percent = 0.0
     result = {
-        "cpu_percent":  cpu,
-        "mem_used_gb":  round(mem.used  / 1024 ** 3, 2),
-        "mem_total_gb": round(mem.total / 1024 ** 3, 2),
-        "mem_percent":  mem.percent,
+        "cpu_percent": round(cpu_percent, 1) if cpu_percent is not None else None,
+        "mem_used_gb": _gib(host["memory_used_bytes"]),
+        "mem_total_gb": _gib(host["memory_total_bytes"]),
+        "mem_percent": host["memory_percent"],
         "gpu": None,
     }
 
-    if _nvml_ok:
-        try:
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            info   = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            util   = pynvml.nvmlDeviceGetUtilizationRates(handle)
+    for gpu in snapshot["gpus"]:
+        if gpu["index"] == 0 and gpu["utilization_percent"] is not None and gpu["memory_percent"] is not None:
             result["gpu"] = {
-                "gpu_percent":  util.gpu,
-                "mem_used_gb":  round(info.used  / 1024 ** 3, 2),
-                "mem_total_gb": round(info.total / 1024 ** 3, 2),
-                "mem_percent":  round(info.used / info.total * 100, 1),
+                "gpu_percent": gpu["utilization_percent"],
+                "mem_used_gb": _gib(gpu["memory_used_bytes"]),
+                "mem_total_gb": _gib(gpu["memory_total_bytes"]),
+                "mem_percent": round(gpu["memory_percent"], 1),
             }
-        except Exception:
-            pass
+            break
 
     return result

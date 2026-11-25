@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 
 from eneuro.agent import SearchSpace
+from eneuro.agent._profiling import add_profiling_arguments, profiling_from_args
 from eneuro.agent.mnist_cuda_executor import CudaMNISTExecutor
 from eneuro.agent.search import SEARCH_STRATEGIES
 from eneuro.agent.timed_search import run_timed_search
@@ -51,6 +52,7 @@ def run(args) -> int:
     return run_timed_search(
         executor, space, budget_s=budget_s, trials=args.trials, seed=args.seed, output=args.output,
         strategy=getattr(args, "strategy", "random"),
+        profiling=profiling_from_args(args),
         protocol={
             "data": str(args.data.resolve()), "model": "EnNeuro LeNet", "device": executor.device_name,
             "device_id": args.device_id, "backend": executor.backend, "epochs": args.epochs,
@@ -81,6 +83,7 @@ def main() -> int:
     parser.add_argument("--backend", choices=("cupy", "rawmodule"), default="cupy")
     default_output = ROOT / "artifacts" / f"automl_mnist_cuda_{datetime.now():%Y%m%d_%H%M%S}"
     parser.add_argument("--output", type=Path, default=default_output, help="本次运行的新输出目录")
+    add_profiling_arguments(parser)
     return run(parser.parse_args())
 
 

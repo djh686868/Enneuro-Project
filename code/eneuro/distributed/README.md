@@ -30,6 +30,10 @@ if __name__ == "__main__":
 
 两个后端都返回 `model_version`（已完成的更新步数）、`parameters`（按名称索引的 NumPy 数组）和 `optimizer_state`。配置 `checkpoint_path` 可保存框架可读取的检查点。Worker 的指标位于 `metrics_dir/worker-<rank>.jsonl`。同时启动的作业应使用各自的指标目录和检查点路径。Ring 自动使用本机回环地址和临时端口，PS 设置 `port=0` 可让系统自动分配监听端口。
 
+## 训练性能采集
+
+在 `launch_distributed(...)` 传入 `profiling=True` 或 `profiling={"output_dir": "metrics/profiles"}`。通过 `result["profiling"]["report"]["observations"]["distributed"]["metrics"]` 读取每个 Worker 和 PS 的阶段耗时、收发字节和样本数。PS 的 `push` 阶段包含 `barrier_wait_ms`，该字段汇总 Worker 等待同步的时间。进程 CPU 和 RSS 指标属于启动进程，系统和 GPU 指标属于整台机器。传入 `profiling=False` 可禁用统一采集，后端继续输出原有的 Worker 和 PS JSONL。
+
 ## 运行
 
 在 `code` 目录激活项目环境后运行。

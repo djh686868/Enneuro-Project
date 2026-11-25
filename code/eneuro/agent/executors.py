@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Mapping
 
 import numpy as np
 
+from ..profiling import current_profile
 from .protocol import TrialResult
 
 
@@ -148,11 +150,12 @@ class MNISTExecutor:
         accuracy = self._fit_and_score(
             config, self._x_dev, self._y_dev,
             self._features(self._x_test), np.asarray(self._y_test, dtype=np.int64),
+            evaluation_phase="automl.test",
         )
         return {"test_accuracy": accuracy, "test_error_rate": 1.0 - accuracy}
 
     def _fit_and_score(self, config: Mapping[str, Any], x_train: np.ndarray, y_train: np.ndarray,
-                       x_eval: np.ndarray, y_eval: np.ndarray) -> float:
+                       x_eval: np.ndarray, y_eval: np.ndarray, *, evaluation_phase="validation") -> float:
         """内层和外层共用训练配方，配置只控制优化器、学习率和批大小。"""
         lr = float(config["lr"])
         batch_size = int(config["batch_size"])
@@ -167,34 +170,42 @@ class MNISTExecutor:
         m_w = np.zeros_like(weights); v_w = np.zeros_like(weights)
         m_b = np.zeros_like(bias); v_b = np.zeros_like(bias)
         step = 0
+        profile = current_profile()
         # 对同一个训练子集，所有配置在每个 epoch 使用相同的样本排列。
         for _ in range(max(1, self.epochs)):
-            order = rng.permutation(len(x_train))
-            for start in range(0, len(order), batch_size):
-                idx = order[start:start + batch_size]
-                x, y = x_train[idx], y_train[idx]
-                logits = x @ weights + bias
-                logits -= logits.max(axis=1, keepdims=True)
-                probs = np.exp(logits); probs /= probs.sum(axis=1, keepdims=True)
-                probs[np.arange(len(y)), y] -= 1.0
-                grad_w = x.T @ probs / len(y)
-                grad_b = probs.mean(axis=0)
-                if optimizer == "adam":
-                    # Adam 的一阶/二阶动量；SGD 则直接使用当前梯度。
-                    step += 1; beta1, beta2 = 0.9, 0.999
-                    m_w = beta1 * m_w + (1 - beta1) * grad_w; v_w = beta2 * v_w + (1 - beta2) * grad_w**2
-                    m_b = beta1 * m_b + (1 - beta1) * grad_b; v_b = beta2 * v_b + (1 - beta2) * grad_b**2
-                    cw = m_w / (1 - beta1**step) / (np.sqrt(v_w / (1 - beta2**step)) + 1e-8)
-                    cb = m_b / (1 - beta1**step) / (np.sqrt(v_b / (1 - beta2**step)) + 1e-8)
-                else:
-                    cw, cb = grad_w, grad_b
-                weights -= lr * cw; bias -= lr * cb
+            with profile.span("train") if profile is not None else nullcontext():
+                order = rng.permutation(len(x_train))
+                for start in range(0, len(order), batch_size):
+                    idx = order[start:start + batch_size]
+                    x, y = x_train[idx], y_train[idx]
+                    logits = x @ weights + bias
+                    logits -= logits.max(axis=1, keepdims=True)
+                    probs = np.exp(logits); probs /= probs.sum(axis=1, keepdims=True)
+                    probs[np.arange(len(y)), y] -= 1.0
+                    grad_w = x.T @ probs / len(y)
+                    grad_b = probs.mean(axis=0)
+                    if optimizer == "adam":
+                        # Adam 的一阶/二阶动量；SGD 则直接使用当前梯度。
+                        step += 1; beta1, beta2 = 0.9, 0.999
+                        m_w = beta1 * m_w + (1 - beta1) * grad_w; v_w = beta2 * v_w + (1 - beta2) * grad_w**2
+                        m_b = beta1 * m_b + (1 - beta1) * grad_b; v_b = beta2 * v_b + (1 - beta2) * grad_b**2
+                        cw = m_w / (1 - beta1**step) / (np.sqrt(v_w / (1 - beta2**step)) + 1e-8)
+                        cb = m_b / (1 - beta1**step) / (np.sqrt(v_b / (1 - beta2**step)) + 1e-8)
+                    else:
+                        cw, cb = grad_w, grad_b
+                    weights -= lr * cw; bias -= lr * cb
+            if profile is not None:
+                profile.count("train_samples", len(x_train))
         # 评分样本从未进入这个模型的参数更新。调用方负责选择内层或外层数据。
-        logits = x_eval @ weights + bias
-        if not np.isfinite(logits).all():
-            raise ValueError("MNIST scores must be finite")
-        pred = logits.argmax(axis=1)
-        return float(np.mean(pred == y_eval)) if len(y_eval) else 0.0
+        with profile.span(evaluation_phase) if profile is not None else nullcontext():
+            logits = x_eval @ weights + bias
+            if not np.isfinite(logits).all():
+                raise ValueError("MNIST scores must be finite")
+            pred = logits.argmax(axis=1)
+            accuracy = float(np.mean(pred == y_eval)) if len(y_eval) else 0.0
+        if profile is not None and evaluation_phase == "validation":
+            profile.count("validation_samples", len(y_eval))
+        return accuracy
 
     # 对外提供 fit 别名，方便将执行器接入习惯“fit”命名的调用方。
     fit = execute

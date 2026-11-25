@@ -23,3 +23,6 @@ setup_tensor()
 
 from .parameter import Parameter
 __all__.append('Parameter')
+
+# The nn module installs hooks for both Layer and Function.
+from .. import nn as _nn

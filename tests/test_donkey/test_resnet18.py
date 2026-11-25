@@ -21,6 +21,7 @@ from eneuro.nn.module import (
 from eneuro.ao import GraphOptimizer, model_to_graph, graph_to_executor, graph_apply_fuse, graph_apply_cast, GradScaler
 from eneuro.nn.optim import SGD, Adam
 from eneuro.nn.loss import crossEntropyError
+from eneuro.profiling import cuda_device_memory, process_snapshot
 
 def progress_bar(current, total, epoch, loss, acc, width=30): # 进度条
     """current: 当前已处理样本数；total: 总样本数"""
@@ -88,7 +89,8 @@ class ResNet18(Module):
 
 
 def test_resnet18_forward_backward():
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
     
     from eneuro.data import DataLoader
     from eneuro.base.functions import has_cupy
@@ -144,7 +146,8 @@ def test_resnet18_forward_backward():
     print(f"[PASS] test_resnet18_forward_backward {duration:.4f}")
     #import gc
     #gc.collect()
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
 
 # -*- coding: utf-8 -*-
 import os
@@ -288,14 +291,6 @@ class SteeringDataset(Dataset):
         idx = max(0, min(idx, num_classes - 1))
         return idx
 
-def print_gpu_mem():
-    from eneuro.base.functions import has_cupy
-    if has_cupy:
-        import cupy as cp
-        free, total = cp.cuda.Device().mem_info
-        used = total - free
-        print(f"GPU memory: used={used/1024**2:.1f}MB, free={free/1024**2:.1f}MB, total={total/1024**2:.1f}MB")
-
 def count_params(model):
     total_params = 0
     for param in model.params():
@@ -304,14 +299,14 @@ def count_params(model):
     return total_params
 
 def train(num_epoch=10, option='normal', autocast=False, num_workers=0):
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
 
     batch_size = 16
 
     from eneuro.base.functions import has_cupy
     from eneuro.data import DataLoader
     import time
-    import psutil
     
     current_dir = Path(__file__).resolve().parent
     data_path = current_dir / 'data'
@@ -398,20 +393,20 @@ def train(num_epoch=10, option='normal', autocast=False, num_workers=0):
             display_acc = (acc_sum / sample_num) if sample_num > 0 and not np.isnan(acc_sum) else np.nan
             progress_bar(batch_idx * batch_size + len(images), len(dataloader.dataset), epoch, loss.to('cpu').data, display_acc)
 
-            current_mem = psutil.Process().memory_info().rss / 1024**2
-            mem_peak = max(mem_peak, current_mem)
-            
-            if has_cupy:
-                import cupy as cp
-                free, total = cp.cuda.Device().mem_info
-                gpu_mem_history.append((total - free) / 1024**2)
+            rss = process_snapshot()["rss_bytes"]
+            if rss is not None:
+                mem_peak = max(mem_peak, rss / 1024**2)
+
+            if memory := cuda_device_memory():
+                gpu_mem_history.append(memory["memory_used_bytes"] / 1024**2)
         
         toc = time.time()
         duration = toc - tic
         epoch_durations.append(duration)
         print(f"\nEpoch {epoch+1} completed in {duration:.4f}s\n")
 
-    print_gpu_mem()
+    if memory := cuda_device_memory():
+        print("GPU memory (bytes):", memory)
     
     gpu_peak = max(gpu_mem_history) if gpu_mem_history else 0
     gpu_avg = np.mean(gpu_mem_history) if gpu_mem_history else 0

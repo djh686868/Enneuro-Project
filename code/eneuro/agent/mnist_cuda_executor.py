@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from math import isfinite
 from pathlib import Path
 from time import perf_counter
@@ -10,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from ..profiling import current_profile
+from ..profiling.cuda import cuda_device_name
 from .protocol import TrialResult
 
 
@@ -49,8 +52,7 @@ class CudaMNISTExecutor:
         self.backend = backend
         self.epochs = epochs
         self.seed = seed
-        name = cp.cuda.runtime.getDeviceProperties(device_id)["name"]
-        self.device_name = name.decode(errors="replace") if isinstance(name, bytes) else str(name)
+        self.device_name = cuda_device_name(device_id)
         for inputs, labels in ((x_train, y_train), (x_val, y_val), (x_test, y_test)):
             if inputs.shape[1:] != (1, 28, 28) or labels.shape != (len(inputs),) or not len(inputs):
                 raise ValueError("MNIST splits must be non-empty NCHW (N, 1, 28, 28) with N labels")
@@ -86,19 +88,23 @@ class CudaMNISTExecutor:
         cp = self._cp
         from eneuro.base.cuda import dispatch
 
+        profile = current_profile()
         previous = dispatch.get_backend()
         try:
             dispatch.set_backend(self.backend)
             with cp.cuda.Device(self.device_id):
-                development = tuple(cp.concatenate((a, b)) for a, b in zip(self._train, self._validation))
+                with profile.span("automl.refit_data", cuda=True) if profile is not None else nullcontext():
+                    development = tuple(cp.concatenate((a, b)) for a, b in zip(self._train, self._validation))
                 model, optimizer, losses, _ = self._fit(config, development, on_epoch=on_epoch)
                 images, labels = self._test
-                test = (cp.asarray(images, dtype=cp.float32), cp.asarray(labels, dtype=cp.int32))
-                accuracy = self._accuracy(model, test, deadline=None)
+                with profile.span("automl.test", cuda=True) if profile is not None else nullcontext():
+                    test = (cp.asarray(images, dtype=cp.float32), cp.asarray(labels, dtype=cp.int32))
+                    accuracy = self._accuracy(model, test, deadline=None)
                 if checkpoint is not None:
                     from eneuro.utils.serializer import Serializer
 
-                    Serializer.save_checkpoint_binary(model, optimizer, self.epochs, checkpoint)
+                    with profile.span("automl.checkpoint") if profile is not None else nullcontext():
+                        Serializer.save_checkpoint_binary(model, optimizer, self.epochs, checkpoint)
         finally:
             dispatch.set_backend(previous)
         return {
@@ -123,6 +129,8 @@ class CudaMNISTExecutor:
             raise ValueError("invalid optimizer, batch size, or learning rate")
 
         _check_deadline(deadline)
+        profile = current_profile()
+        batch_every = profile.config.batch_every if profile is not None else 0
         previous = dispatch.get_backend()
         try:
             dispatch.set_backend(self.backend)
@@ -150,7 +158,8 @@ class CudaMNISTExecutor:
                     _check_deadline(deadline)
                     order = cp.asarray(rng.permutation(len(images)))
                     total_loss = 0.0
-                    with Config.using_config("train", True), Config.using_config("enable_backprop", True):
+                    train_span = profile.span("train", cuda=True) if profile is not None else nullcontext()
+                    with train_span, Config.using_config("train", True), Config.using_config("enable_backprop", True):
                         for start in range(0, len(images), batch_size):
                             _check_deadline(deadline)
                             indices = order[start:start + batch_size]
@@ -165,11 +174,18 @@ class CudaMNISTExecutor:
                             if not isfinite(value):
                                 raise _NonFiniteTrial("CUDA MNIST loss is not finite")
                             total_loss += value * len(indices)
+                            if batch_every and (start // batch_size) % batch_every == 0:
+                                profile.sample_cupy_pool()
 
+                    if profile is not None:
+                        profile.count("train_samples", len(images))
                     losses.append(total_loss / len(images))
                     accuracy = None
                     if validation is not None:
-                        accuracy = self._accuracy(model, validation, deadline=deadline)
+                        with profile.span("validation", cuda=True) if profile is not None else nullcontext():
+                            accuracy = self._accuracy(model, validation, deadline=deadline)
+                        if profile is not None:
+                            profile.count("validation_samples", len(validation[0]))
                         accuracies.append(accuracy)
                     _check_deadline(deadline)
                     if on_epoch is not None:

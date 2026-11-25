@@ -1,0 +1,5 @@
+# Optional host, NVIDIA and MCP integrations for eneuro.profiling.
+psutil
+nvidia-ml-py
+nvtx
+mcp>=1.28,<2

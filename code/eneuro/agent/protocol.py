@@ -68,16 +68,20 @@ class TrialResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     status: str = "completed"
     error: str | None = None
+    profiling: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """转换成报告层可直接序列化的普通字典。"""
-        return {
+        result = {
             # 缺失或无穷的目标值用 JSON null 表示，失败原因由 status/error 保留。
             "objective": float(self.objective) if isfinite(self.objective) else None,
             "metrics": dict(self.metrics),
             "status": self.status,
             "error": self.error,
         }
+        if self.profiling is not None:
+            result["profiling"] = self.profiling
+        return result
 
 
 class Executor(Protocol):
@@ -129,13 +133,17 @@ class SearchResult:
     best_config: dict[str, Any] | None
     best_result: TrialResult | None
     seed: int
+    profiling: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """将汇总结果展开为 JSON 兼容结构。"""
-        return {
+        result = {
             "seed": self.seed,
             "trials": self.trials,
             "events": [event.to_dict() for event in self.events],
             "best_config": self.best_config,
             "best_result": self.best_result.to_dict() if self.best_result else None,
         }
+        if self.profiling is not None:
+            result["profiling"] = self.profiling
+        return result

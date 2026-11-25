@@ -3,8 +3,6 @@ import argparse
 import os
 import sys
 import time
-import ctypes
-import tracemalloc
 from pathlib import Path
 
 import cv2
@@ -17,31 +15,6 @@ except ImportError:
     cp = None
     has_cupy = False
 
-try:
-    import psutil  # type: ignore
-except ImportError:
-    psutil = None
-
-
-if os.name == 'nt':
-    from ctypes import wintypes
-
-    class _PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
-        _fields_ = [
-            ('cb', wintypes.DWORD),
-            ('PageFaultCount', wintypes.DWORD),
-            ('PeakWorkingSetSize', ctypes.c_size_t),
-            ('WorkingSetSize', ctypes.c_size_t),
-            ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
-            ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
-            ('PagefileUsage', ctypes.c_size_t),
-            ('PeakPagefileUsage', ctypes.c_size_t),
-            ('PrivateUsage', ctypes.c_size_t),
-        ]
-
-
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from eneuro.base import as_Tensor, Config  # noqa: E402
@@ -52,51 +25,9 @@ from eneuro.data import Dataset, DataLoader  # noqa: E402
 from eneuro.nn.loss import meanSquaredError  # noqa: E402
 from eneuro.nn.module import Module, Conv2d, BatchNorm, Linear, ResidualBlock, Sequential  # noqa: E402
 from eneuro.nn.optim import Adam  # noqa: E402
+from eneuro.profiling import process_snapshot  # noqa: E402
 from eneuro.train.trainer import Trainer  # noqa: E402
 from eneuro.utils import save_checkpoint, load_checkpoint  # noqa: E402
-
-
-def _get_cpu_time_seconds_fallback():
-    if os.name != 'nt':
-        return None
-    kernel32 = ctypes.windll.kernel32
-    handle = kernel32.GetCurrentProcess()
-    creation = wintypes.FILETIME()
-    exit_time = wintypes.FILETIME()
-    kernel = wintypes.FILETIME()
-    user = wintypes.FILETIME()
-    ok = kernel32.GetProcessTimes(
-        handle,
-        ctypes.byref(creation),
-        ctypes.byref(exit_time),
-        ctypes.byref(kernel),
-        ctypes.byref(user),
-    )
-    if not ok:
-        return None
-
-    def _to_100ns(ft):
-        return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
-
-    return (_to_100ns(kernel) + _to_100ns(user)) / 1e7
-
-
-def _get_memory_info_fallback():
-    if os.name != 'nt':
-        return (None, None)
-    psapi = ctypes.windll.psapi
-    kernel32 = ctypes.windll.kernel32
-    handle = kernel32.GetCurrentProcess()
-    counters = _PROCESS_MEMORY_COUNTERS_EX()
-    counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS_EX)
-    ok = psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
-    if not ok:
-        return (None, None)
-    return (int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize))
-
-
-def _memory_mb(num_bytes):
-    return float(num_bytes) / (1024.0 * 1024.0)
 
 
 def _resolve_device(requested):
@@ -132,51 +63,6 @@ def _device_label(device):
     if device in ('cuda', 'gpu'):
         return 'gpu'
     return 'cpu'
-
-
-def collect_process_metrics(start_wall, start_cpu_time, start_rss, fallback_proc_time_start=None, fallback_trace_started=False):
-    wall = time.perf_counter() - start_wall
-    result = {
-        'wall_s': wall,
-        'cpu_avg_percent': None,
-        'mem_peak_mb': None,
-    }
-
-    if psutil is None:
-        end_cpu_time = _get_cpu_time_seconds_fallback()
-        if start_cpu_time is not None and end_cpu_time is not None and wall > 0:
-            logical_cores = os.cpu_count() or 1
-            result['cpu_avg_percent'] = ((end_cpu_time - start_cpu_time) / wall) * 100.0 / logical_cores
-        elif fallback_proc_time_start is not None and wall > 0:
-            logical_cores = os.cpu_count() or 1
-            cpu_sec = time.process_time() - fallback_proc_time_start
-            result['cpu_avg_percent'] = (cpu_sec / wall) * 100.0 / logical_cores
-
-        rss_now, peak_rss = _get_memory_info_fallback()
-        if peak_rss is not None:
-            result['mem_peak_mb'] = _memory_mb(peak_rss)
-        elif start_rss is not None and rss_now is not None:
-            result['mem_peak_mb'] = _memory_mb(max(start_rss, rss_now))
-        elif fallback_trace_started and tracemalloc.is_tracing():
-            _, peak_bytes = tracemalloc.get_traced_memory()
-            result['mem_peak_mb'] = _memory_mb(peak_bytes)
-            tracemalloc.stop()
-
-        return result
-
-    proc = psutil.Process(os.getpid())
-    end_cpu = proc.cpu_times()
-    cpu_time_delta = (end_cpu.user + end_cpu.system) - start_cpu_time
-    logical_cores = psutil.cpu_count(logical=True) or 1
-    if wall > 0:
-        result['cpu_avg_percent'] = (cpu_time_delta / wall) * 100.0 / logical_cores
-
-    mem_info = proc.memory_info()
-    peak_bytes = getattr(mem_info, 'peak_wset', None)
-    if peak_bytes is None:
-        peak_bytes = max(mem_info.rss, start_rss)
-    result['mem_peak_mb'] = _memory_mb(peak_bytes)
-    return result
 
 
 class ResNet18Steering(Module):
@@ -458,20 +344,7 @@ def main():
     learnable_params = count_learnable_params(model)
     print('[METRIC] learnable_params={}'.format(learnable_params))
 
-    proc = psutil.Process(os.getpid()) if psutil is not None else None
-    fallback_proc_time_start = time.process_time()
-    fallback_trace_started = False
-    if proc is not None:
-        start_cpu = proc.cpu_times()
-        start_cpu_time = start_cpu.user + start_cpu.system
-        start_rss = proc.memory_info().rss
-    else:
-        start_cpu_time = _get_cpu_time_seconds_fallback()
-        start_rss, _ = _get_memory_info_fallback()
-        if start_rss is None:
-            tracemalloc.start()
-            fallback_trace_started = True
-
+    before = process_snapshot()
     start_wall = time.perf_counter()
 
     total_target_epoch = resumed_epoch + args.epochs
@@ -517,23 +390,23 @@ def main():
 
     te_mse, te_mae = evaluate(model, test_loader, device=device)
     print('[METRIC] cuda_launch_counts={}'.format(launch_counts()))
-    metrics = collect_process_metrics(
-        start_wall,
-        start_cpu_time,
-        start_rss,
-        fallback_proc_time_start=fallback_proc_time_start,
-        fallback_trace_started=fallback_trace_started,
-    )
+    wall_s = time.perf_counter() - start_wall
+    after = process_snapshot()
+    cpu_time = after['cpu_time_s'] - before['cpu_time_s']
+    peak_rss = after['rss_lifetime_peak_bytes']
+    if peak_rss is None:
+        peak_rss = max((rss for rss in (before['rss_bytes'], after['rss_bytes']) if rss is not None), default=None)
 
     device_label = _device_label(device)
     print('[RESULT] device={} test_mse={:.6f} test_mae={:.6f}'.format(device_label, te_mse, te_mae))
-    print('[METRIC] wall_time_s={:.4f}'.format(metrics['wall_s']))
-    if metrics['mem_peak_mb'] is not None:
-        print('[METRIC] peak_memory_mb={:.2f}'.format(metrics['mem_peak_mb']))
+    print('[METRIC] wall_time_s={:.4f}'.format(wall_s))
+    if peak_rss is not None:
+        print('[METRIC] peak_memory_mb={:.2f}'.format(peak_rss / 1024 ** 2))
     else:
         print('[METRIC] peak_memory_mb=N/A')
-    if metrics['cpu_avg_percent'] is not None:
-        print('[METRIC] cpu_avg_percent={:.2f}'.format(metrics['cpu_avg_percent']))
+    if wall_s > 0:
+        cpu_percent = 100 * cpu_time / wall_s / (os.cpu_count() or 1)
+        print('[METRIC] cpu_avg_percent={:.2f}'.format(cpu_percent))
     else:
         print('[METRIC] cpu_avg_percent=N/A')
     if args.best_checkpoint and best_val_mse < float('inf'):

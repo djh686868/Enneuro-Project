@@ -4,8 +4,6 @@
 import argparse
 import json
 import os
-import re
-import shutil
 import subprocess
 import sys
 import time
@@ -84,36 +82,6 @@ def _run_conv_case(iters, warmup, shape, kernel, stride, pad, dilation, seed):
     }
 
 
-def _perf_stat(cmd, events):
-    perf = shutil.which("perf")
-    if perf is None:
-        raise RuntimeError("perf not found in PATH")
-
-    event_arg = ",".join(events)
-    perf_cmd = [perf, "stat", "-x,", "-e", event_arg] + cmd
-    result = subprocess.run(perf_cmd, capture_output=True, text=True, check=False)
-
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "perf stat failed")
-
-    counters = {}
-    for line in result.stderr.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 3:
-            continue
-        count, _, event = parts[0], parts[1], parts[2]
-        if count in ("<not supported>", "<not counted>"):
-            continue
-        count = count.replace(",", "")
-        if not re.match(r"^-?\d+$", count):
-            continue
-        counters[event] = int(count)
-    return counters, result.stdout
-
-
 def _calc_miss_rate(counters, load_key, miss_key):
     loads = counters.get(load_key)
     misses = counters.get(miss_key)
@@ -142,23 +110,19 @@ def _calc_pct_change(base_value, tiled_value):
 
 
 def _resolve_cache_events(cache_level):
+    from eneuro.profiling.perf import perf_stat
+
     candidates = CACHE_EVENT_CANDIDATES.get(cache_level)
     if not candidates:
         raise ValueError(f"Unsupported cache level: {cache_level}")
 
-    perf = shutil.which("perf")
-    if perf is None:
-        raise RuntimeError("perf not found in PATH")
-
     probe_cmd = [sys.executable, "-c", "pass"]
     for load_key, miss_key in candidates:
-        probe = subprocess.run(
-            [perf, "stat", "-x,", "-e", f"{load_key},{miss_key}"] + probe_cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if probe.returncode == 0:
+        try:
+            counters, _ = perf_stat(probe_cmd, (load_key, miss_key))
+        except RuntimeError:
+            continue
+        if load_key in counters and miss_key in counters:
             return load_key, miss_key
 
     load_key, miss_key = candidates[0]
@@ -191,7 +155,9 @@ def _run_subprocess(args, mode, metrics, events):
     ]
 
     if metrics == "perf":
-        counters, stdout = _perf_stat(cmd, events)
+        from eneuro.profiling.perf import perf_stat
+
+        counters, stdout = perf_stat(cmd, events)
         data = json.loads(stdout.strip().splitlines()[-1])
         data["counters"] = counters
         return data
@@ -234,6 +200,9 @@ def main():
     parser.add_argument("--seed", type=int, default=20260531)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+
+    # Import local framework modules only after selecting the execution mode.
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
     if args.compare:
         events = []
@@ -314,9 +283,6 @@ def main():
         return
 
     _configure_env(args.mode)
-
-    # Delay imports until env is set.
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
     stats = _run_conv_case(
         iters=args.iters,

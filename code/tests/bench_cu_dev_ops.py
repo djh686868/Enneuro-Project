@@ -31,6 +31,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from eneuro.utils.cuda_ops import OPS, CudaOps, ELEMENTWISE_KINDS  # noqa: E402
+from eneuro.profiling.cuda import cuda_device_name  # noqa: E402
 
 # 中文字体（Windows 自带；缺失则自动退回默认字体）
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -279,7 +280,7 @@ def draw_chart(times, out_path: Path, n: int, iters: int, rounds: int) -> None:
                          ha="center", va="bottom", fontsize=6.5)
 
     fig.suptitle("CUDA 算子：host 接口 vs dev 零拷贝接口（复用 cupy data.ptr）"
-                 f"   |   GPU: {cp.cuda.runtime.getDeviceProperties(0)['name'].decode()}",
+                 f"   |   GPU: {cuda_device_name()}",
                  fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -304,7 +305,7 @@ def main():
     print("=" * 92)
     print("CUDA 算子 host 接口 vs dev 零拷贝接口（方案B）")
     print("=" * 92)
-    print(f"GPU      : {cp.cuda.runtime.getDeviceProperties(0)['name'].decode()}")
+    print(f"GPU      : {cuda_device_name()}")
     print(f"库目录   : {ops.lib_dir}  ({len(ops.ops)} 个算子)")
     print(f"n        : {args.n:,}\n")
 

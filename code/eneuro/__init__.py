@@ -1,17 +1,10 @@
-__all__ = []
+from importlib import import_module
+
+__all__ = ["utils", "base", "nn", "data", "train", "ao", "explainability", "profiling"]
 __version__ = "0.1dev"
 
-from . import utils
-__all__.append('utils')
-from . import base
-__all__.append('base')
-from . import nn
-__all__.append('nn')
-from . import data
-__all__.append('data')
-from . import train
-__all__.append('train')
-from . import ao
-__all__.append('ao')
-from . import explainability
-__all__.append('explainability')
+
+def __getattr__(name):
+    if name in __all__:
+        return import_module(f".{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

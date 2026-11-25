@@ -11,7 +11,7 @@ import csv
 import random
 import time
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import cached_property
 from math import isfinite
 from pathlib import Path
@@ -19,6 +19,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from ..profiling import current_profile
+from ..profiling.cuda import cuda_device_name
 from .protocol import TrialResult
 
 DRIVING_TARGETS = ("steering", "throttle", "brake", "speed")
@@ -265,8 +267,7 @@ class CarBehavioralCloningExecutor:
         count = cp.cuda.runtime.getDeviceCount()
         if not 0 <= self.device_id < count:
             raise RuntimeError(f"CUDA 设备 {self.device_id} 不可用（可见设备数 {count}）")
-        name = cp.cuda.runtime.getDeviceProperties(self.device_id)["name"]
-        return name.decode(errors="replace") if isinstance(name, bytes) else str(name)
+        return cuda_device_name(self.device_id)
 
     @contextmanager
     def _device_scope(self):
@@ -452,10 +453,16 @@ class CarBehavioralCloningExecutor:
             train_mse_by_epoch.append(train_mse)
             if on_epoch is not None and (split == "test" or epoch + 1 < epochs):
                 on_epoch(epoch + 1, train_mse, None)
-        mse, mae, per_target = self._evaluate(
-            model, score_loader, meanSquaredError, self.device, Config,
-            deadline=deadline, normalization=normalization,
-        )
+        profile = current_profile()
+        scoring_phase = "validation" if split == "val" else "automl.test"
+        cuda = self.device in {"cuda", "gpu"}
+        with profile.span(scoring_phase, cuda=cuda) if profile is not None else nullcontext():
+            mse, mae, per_target = self._evaluate(
+                model, score_loader, meanSquaredError, self.device, Config,
+                deadline=deadline, normalization=normalization,
+            )
+        if profile is not None and split == "val":
+            profile.count("validation_samples", len(score_ds))
         if not isfinite(mse) or not isfinite(mae):
             raise _NonFiniteTrial("车辆评估指标出现非有限值")
         if on_epoch is not None and split == "val":
@@ -486,7 +493,8 @@ class CarBehavioralCloningExecutor:
                 model_config.update(out_features=len(self.target_names), target_names=list(self.target_names))
             if normalization:
                 model_config["target_normalization"] = normalization
-            Serializer.save_checkpoint_binary(model, optimizer, epochs, checkpoint, model_config=model_config)
+            with profile.span("automl.checkpoint") if profile is not None else nullcontext():
+                Serializer.save_checkpoint_binary(model, optimizer, epochs, checkpoint, model_config=model_config)
             metrics["checkpoint"] = str(checkpoint)
         return metrics
 

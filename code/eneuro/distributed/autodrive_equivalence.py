@@ -11,9 +11,9 @@ import numpy as np
 
 from ..base import Tensor
 from ..nn.loss import meanSquaredError
+from ..profiling.distributed import worker_loss_trace
 from ..train.trainer import Trainer
 from .autodrive import make_autodrive_model, make_optimizer, make_steering_dataset
-from .benchmark import _loss_trace
 from . import DistributedConfig, launch
 from .state import install_gradients, named_state
 
@@ -63,7 +63,7 @@ def main():
                                    metrics_dir=metrics_dir)
         distributed = launch(make_autodrive_model, dataset_factory,
                              meanSquaredError, make_optimizer, config)
-        trace = _loss_trace(metrics_dir, 2)
+        trace = worker_loss_trace(metrics_dir, 2)
     if distributed['model_version'] != steps or len(trace) != steps:
         raise AssertionError(f'expected {steps} complete updates')
 
